@@ -118,6 +118,13 @@ class WebDAVCfg:
     keep_last: int = 10
     timeout: int = 300
     verify_tls: bool = True
+    # Nextcloud chunked upload for large files.
+    # If file size >= chunked_threshold_mb, use multi-part upload protocol.
+    # Set chunked: false to disable entirely (works only with raw WebDAV servers).
+    chunked: bool = True
+    chunked_threshold_mb: int = 500     # use chunked for files >= this size
+    chunked_chunk_size_mb: int = 10     # size of each chunk
+    chunked_retries: int = 3            # retry per-chunk on network errors
 
 
 @dataclass
