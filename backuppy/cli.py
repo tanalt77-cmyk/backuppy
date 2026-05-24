@@ -1,4 +1,20 @@
-"""Command-line interface."""
+"""Command-line interface.
+
+Three ways to point at config files:
+
+  1. By name (looks in DEFAULT_CONFIGS_DIR — typically /etc/backuppy/):
+       backuppy run pixo
+       backuppy verify pixo mssql-prod files-www
+       backuppy run pixo postgres-app
+
+  2. By explicit path (anywhere on disk):
+       backuppy run -c /path/to/some.yml
+       backuppy run -c ./local.yml -c /opt/other.yml
+
+  3. All models in a directory:
+       backuppy run --all
+       backuppy run --configs-dir /custom/dir/
+"""
 from __future__ import annotations
 
 import argparse
@@ -14,11 +30,39 @@ from .cmd_new import cmd_new, cmd_list_templates, TEMPLATES
 DEFAULT_CONFIGS_DIR = "/etc/backuppy"
 
 
-def _collect_configs(configs: list[str] | None,
-                     configs_dir: str | None) -> list[Path]:
-    """Resolve --config (repeatable) and --configs-dir to a list of files."""
+def _resolve_name_to_path(name: str, base_dir: Path) -> Path | None:
+    """Try base_dir/<name>.yml, base_dir/<name>.yaml. Return None if not found."""
+    for ext in (".yml", ".yaml"):
+        p = base_dir / f"{name}{ext}"
+        if p.is_file():
+            return p
+    return None
+
+
+def _collect_configs(names: list[str], configs: list[str] | None,
+                     configs_dir: str | None,
+                     all_flag: bool) -> list[Path]:
+    """Resolve positional names + --config + --configs-dir + --all into a path list."""
+    base_dir = Path(DEFAULT_CONFIGS_DIR)
     paths: list[Path] = []
 
+    # 1. Positional names — look up in default configs dir
+    for name in names:
+        # Allow "shared/storage" style → base_dir / shared / storage.yml
+        if "/" in name or "\\" in name:
+            print(f"Model name '{name}' contains path separator. "
+                  f"Use --config / -c for paths.", file=sys.stderr)
+            sys.exit(2)
+        p = _resolve_name_to_path(name, base_dir)
+        if p is None:
+            print(f"Model '{name}' not found in {base_dir}/", file=sys.stderr)
+            avail = _list_available_models(base_dir)
+            if avail:
+                print(f"Available: {', '.join(avail)}", file=sys.stderr)
+            sys.exit(2)
+        paths.append(p)
+
+    # 2. --config (explicit paths)
     if configs:
         for c in configs:
             p = Path(c).expanduser()
@@ -27,22 +71,66 @@ def _collect_configs(configs: list[str] | None,
                 sys.exit(2)
             paths.append(p)
 
-    if configs_dir:
-        d = Path(configs_dir).expanduser()
-        if not d.is_dir():
-            print(f"Not a directory: {d}", file=sys.stderr)
+    # 3. --all (default configs dir) or --configs-dir
+    target_dir: Path | None = None
+    if all_flag:
+        target_dir = base_dir
+    elif configs_dir:
+        target_dir = Path(configs_dir).expanduser()
+
+    if target_dir is not None:
+        if not target_dir.is_dir():
+            print(f"Not a directory: {target_dir}", file=sys.stderr)
             sys.exit(2)
-        for p in sorted(d.iterdir()):
+        for p in sorted(target_dir.iterdir()):
             if p.is_file() and p.suffix in (".yml", ".yaml") and \
                not p.name.startswith(("_", ".", "config.example")):
                 paths.append(p)
 
-    if not paths:
-        print("No config file(s) given. Use --config / -c or --configs-dir.",
-              file=sys.stderr)
+    # Deduplicate while preserving order
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for p in paths:
+        r = p.resolve()
+        if r not in seen:
+            seen.add(r)
+            unique.append(p)
+
+    if not unique:
+        print(
+            "No config(s) given. Use one of:\n"
+            "  backuppy <command> <model-name>   (looks in /etc/backuppy/)\n"
+            "  backuppy <command> --all          (all models in /etc/backuppy/)\n"
+            "  backuppy <command> -c /path/to.yml",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
-    return paths
+    return unique
+
+
+def _list_available_models(base_dir: Path) -> list[str]:
+    """Return sorted list of model names available in base_dir."""
+    if not base_dir.is_dir():
+        return []
+    out = []
+    for p in sorted(base_dir.iterdir()):
+        if p.is_file() and p.suffix in (".yml", ".yaml") and \
+           not p.name.startswith(("_", ".", "config.example")):
+            out.append(p.stem)
+    return out
+
+
+def _add_target_args(parser: argparse.ArgumentParser) -> None:
+    """Args shared by run/list/verify/models — three ways to specify configs."""
+    parser.add_argument("names", nargs="*",
+                        help=f"Model name(s) — files in {DEFAULT_CONFIGS_DIR}/")
+    parser.add_argument("--config", "-c", action="append",
+                        help="Explicit path to a YAML (repeatable).")
+    parser.add_argument("--configs-dir",
+                        help="Custom directory of *.yml/*.yaml configs.")
+    parser.add_argument("--all", action="store_true",
+                        help=f"All models in {DEFAULT_CONFIGS_DIR}/")
 
 
 def main() -> int:
@@ -58,24 +146,24 @@ def main() -> int:
 
     # ---- run ----
     p_run = sub.add_parser("run", help="Run one or more backup models")
-    _add_config_args(p_run)
+    _add_target_args(p_run)
     p_run.add_argument("--dry-run", action="store_true",
                        help="Show what would be done without doing it.")
 
     # ---- list ----
     p_list = sub.add_parser("list",
                             help="List backup files (local + remote) per model")
-    _add_config_args(p_list)
+    _add_target_args(p_list)
 
     # ---- verify ----
     p_verify = sub.add_parser("verify",
                               help="Preflight check: configs, creds, access")
-    _add_config_args(p_verify)
+    _add_target_args(p_verify)
 
     # ---- models ----
     p_models = sub.add_parser("models",
                               help="List discovered models in a directory")
-    _add_config_args(p_models)
+    _add_target_args(p_models)
 
     # ---- new ----
     p_new = sub.add_parser("new", help="Create a new model from a template")
@@ -83,7 +171,7 @@ def main() -> int:
                        help="Model name (also becomes the filename).")
     p_new.add_argument("--template", "-t",
                        choices=sorted(TEMPLATES.keys()),
-                       help="Template to use. If omitted, auto-detected from name.")
+                       help="Template (auto-detected from name if omitted).")
     p_new.add_argument("--dir", "-d", default=DEFAULT_CONFIGS_DIR,
                        help=f"Where to create the file (default: {DEFAULT_CONFIGS_DIR}).")
     p_new.add_argument("--force", "-f", action="store_true",
@@ -103,8 +191,18 @@ def main() -> int:
         return cmd_new(args.name, args.template, Path(args.dir).expanduser(),
                        args.force)
 
-    # All other commands take config paths
-    config_paths = _collect_configs(args.config, args.configs_dir)
+    # For models without any target → show what's available in DEFAULT_CONFIGS_DIR
+    if args.command == "models" and not (args.names or args.config or
+                                          args.configs_dir or args.all):
+        # Default behavior: list models in DEFAULT_CONFIGS_DIR
+        args.all = True
+
+    config_paths = _collect_configs(
+        getattr(args, "names", []) or [],
+        getattr(args, "config", None),
+        getattr(args, "configs_dir", None),
+        getattr(args, "all", False),
+    )
 
     if args.command == "models":
         return cmd_models(config_paths)
@@ -142,13 +240,6 @@ def main() -> int:
                 log.error("###### Model %s FAILED (rc=%d) ######", cfg.name, rc)
 
     return overall
-
-
-def _add_config_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", "-c", action="append",
-                        help="Path to a config YAML (repeatable).")
-    parser.add_argument("--configs-dir", "-d",
-                        help="Directory of *.yml/*.yaml configs.")
 
 
 if __name__ == "__main__":

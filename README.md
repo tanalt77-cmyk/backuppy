@@ -42,11 +42,18 @@ bash install.sh -s -- --update          # update existing install
 ## Usage
 
 ```bash
-backuppy verify -c /etc/backuppy/my-model.yml   # preflight checks
-backuppy run    -c /etc/backuppy/my-model.yml --dry-run
-backuppy run    -c /etc/backuppy/my-model.yml
-backuppy list   -c /etc/backuppy/my-model.yml   # show stored backups
-backuppy models --configs-dir /etc/backuppy/    # show all models
+# By model name (looks in /etc/backuppy/):
+backuppy run pixo                          # run /etc/backuppy/pixo.yml
+backuppy verify pixo                       # preflight check
+backuppy run pixo files-www mssql-prod     # run multiple models
+backuppy run --all                         # run everything in /etc/backuppy/
+backuppy models                            # list all models
+
+# By explicit path (works anywhere):
+backuppy run -c /path/to/some.yml --dry-run
+
+# List discovered models
+backuppy models                            # what's in /etc/backuppy/
 ```
 
 ## Examples
@@ -151,8 +158,10 @@ Templates: `files`, `postgres`, `mysql`, `mssql-full`, `mssql-diff`, `shared-sto
 backuppy treats each YAML file as a model. Run individually, in groups, or all:
 
 ```bash
-backuppy run -c /etc/backuppy/m1.yml -c /etc/backuppy/m2.yml
-backuppy run --configs-dir /etc/backuppy/
+backuppy run pixo                          # one model by name
+backuppy run pixo files-www                # multiple models by name
+backuppy run --all                         # all models in /etc/backuppy/
+backuppy run -c /path/to/external.yml      # external file by path
 ```
 
 Share credentials between models with `extends:`:
@@ -247,13 +256,13 @@ email:
 PATH=/usr/local/bin:/usr/bin:/bin
 
 # Daily 02:00: FULL MSSQL backup
-0 2 * * *   /usr/local/bin/backuppy run -c /etc/backuppy/mssql-full.yml
+0 2 * * *   /usr/local/bin/backuppy run mssql-full
 
 # Hourly DIFFERENTIAL (except 02:00)
-0 0-1,3-23 * * *   /usr/local/bin/backuppy run -c /etc/backuppy/mssql-diff.yml
+0 0-1,3-23 * * *   /usr/local/bin/backuppy run mssql-diff
 
 # Run everything daily at 03:00
-0 3 * * *   /usr/local/bin/backuppy run --configs-dir /etc/backuppy/
+0 3 * * *   /usr/local/bin/backuppy run --all
 ```
 
 ## Restore
