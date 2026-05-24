@@ -54,7 +54,7 @@ if [[ $UPDATE_MODE -eq 1 ]]; then
         exit 1
     fi
     /opt/backuppy/venv/bin/pip install --upgrade --force-reinstall \
-        "git+${GIT_URL}@${BRANCH}" --quiet
+        "backuppy @ git+${GIT_URL}@${BRANCH}" --quiet
     log "✓ Updated from $BRANCH"
     /opt/backuppy/venv/bin/backuppy --version
     exit 0
@@ -90,7 +90,7 @@ if [[ ! -d /opt/backuppy/venv ]]; then
     python3 -m venv /opt/backuppy/venv
 fi
 /opt/backuppy/venv/bin/pip install --upgrade pip --quiet
-/opt/backuppy/venv/bin/pip install --quiet "git+${GIT_URL}@${BRANCH}#egg=backuppy[${EXTRAS}]"
+/opt/backuppy/venv/bin/pip install --quiet "backuppy[${EXTRAS}] @ git+${GIT_URL}@${BRANCH}"
 
 log "[5/5] Wrapper /usr/local/bin/backuppy"
 cat > /usr/local/bin/backuppy <<'WRAP'
