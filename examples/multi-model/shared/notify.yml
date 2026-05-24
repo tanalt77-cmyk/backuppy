@@ -1,0 +1,7 @@
+# Shared Telegram notifier.
+
+telegram:
+  enabled: true
+  when: on_failure
+  bot_token: "123456:ABC-DEF..."    # from @BotFather
+  chat_id: "-100123456789"

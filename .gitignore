@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Тестові артефакти
+/tmp/
+test_*.py
+.pytest_cache/
+
+# Локальні конфіги — НІКОЛИ не комітити (там паролі/секрети)
+config.yml
+*.local.yml
+smb-creds
+passphrase
+
+# Логи і бекапи
+*.log
+*.tar.gz
+*.bak
+*.gpg
+
+# IDE
+.vscode/
+.idea/
+*.swp

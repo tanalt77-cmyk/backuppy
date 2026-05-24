@@ -1,0 +1,19 @@
+# Shared S3 credentials + logging + verify policy.
+# Referenced by individual model files via `extends: shared/storage.yml`.
+
+s3:
+  enabled: true
+  bucket: my-backups-eu
+  region: eu-central-1
+  access_key_id: "AKIA..."         # set real creds
+  secret_access_key: "..."
+  storage_class: STANDARD_IA
+  keep_last: 30                    # default; can be overridden per model
+
+log:
+  file: /var/log/backuppy.log
+  level: INFO
+
+verify:
+  enabled: true
+  method: checksum

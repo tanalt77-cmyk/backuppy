@@ -1,0 +1,32 @@
+# Model: mssql-full
+# Daily FULL backup of all MSSQL databases.
+#
+# Paired with mssql-diff.yml for hourly DIFFERENTIAL backups.
+
+extends:
+  - shared/storage.yml
+  - shared/notify.yml
+
+name: mssql-full
+
+mssql:
+  enabled: true
+  host: "windows-host"
+  username: "backup_user"
+  password: "SECRET"
+  remote_backup_dir: "D:\\Backups\\backuppy"
+  local_mount_dir: "/mnt/mssql-backups"
+  compression: true
+  checksum: true
+  cleanup_remote: true
+  databases:
+    - { name: AppDB,   backup_type: FULL }
+    - { name: OtherDB, backup_type: FULL }
+
+local:
+  path: /var/backups/mssql
+  keep_last: 7
+
+s3:
+  prefix: mssql-full
+  keep_last: 14

@@ -1,0 +1,27 @@
+# Model: files-www
+# Web server files archive.
+
+extends:
+  - shared/storage.yml
+  - shared/notify.yml
+
+name: files-www
+
+archive:
+  name: www
+  paths: [/var/www, /etc/nginx]
+  excludes:
+    - "*/node_modules/*"
+    - "*/.cache/*"
+
+compression:
+  method: xz
+  level: 6
+
+local:
+  path: /var/backups/files
+  keep_last: 5
+
+s3:
+  prefix: files-www
+  keep_last: 30

@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "backuppy"
+version = "2.0.0"
+description = "Modular backup tool inspired by Backup gem"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "tanalt77-cmyk" }]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+    "requests>=2.28",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+s3 = ["boto3>=1.26"]
+mssql = ["pyodbc>=4.0"]
+sftp = ["paramiko>=3.0"]
+dropbox = ["dropbox>=11.0"]
+gcs = ["google-cloud-storage>=2.0"]
+azure = ["azure-storage-blob>=12.0"]
+all = [
+    "boto3>=1.26",
+    "pyodbc>=4.0",
+    "paramiko>=3.0",
+    "dropbox>=11.0",
+    "google-cloud-storage>=2.0",
+    "azure-storage-blob>=12.0",
+]
+
+[project.scripts]
+backuppy = "backuppy.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["backuppy*"]

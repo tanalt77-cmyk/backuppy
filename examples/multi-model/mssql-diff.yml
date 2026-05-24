@@ -1,0 +1,32 @@
+# Model: mssql-diff
+# Hourly DIFFERENTIAL backup of all MSSQL databases.
+#
+# Runs every hour except 02:00 (when mssql-full.yml runs the FULL).
+
+extends:
+  - shared/storage.yml
+  - shared/notify.yml
+
+name: mssql-diff
+
+mssql:
+  enabled: true
+  host: "windows-host"
+  username: "backup_user"
+  password: "SECRET"
+  remote_backup_dir: "D:\\Backups\\backuppy"
+  local_mount_dir: "/mnt/mssql-backups"
+  compression: true
+  checksum: true
+  cleanup_remote: true
+  databases:
+    - { name: AppDB,   backup_type: DIFFERENTIAL }
+    - { name: OtherDB, backup_type: DIFFERENTIAL }
+
+local:
+  path: /var/backups/mssql
+  keep_last: 48          # 48 hourly diffs = 2 days of restore points
+
+s3:
+  prefix: mssql-diff
+  keep_last: 96          # 4 days on S3
