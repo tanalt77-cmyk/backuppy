@@ -13,6 +13,7 @@ TEMPLATES = {
     "mysql": "MySQL/MariaDB via mysqldump",
     "mssql-full": "Windows SQL Server FULL backup",
     "mssql-diff": "Windows SQL Server DIFFERENTIAL backup",
+    "mssql-log": "Windows SQL Server TRANSACTION LOG backup (requires FULL recovery)",
     "shared-storage": "Shared storage credentials (for use with extends:)",
 }
 

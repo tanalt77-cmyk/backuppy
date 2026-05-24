@@ -97,11 +97,24 @@ class MSSQLTrigger(BaseTrigger):
     def _backup_one(self, conn, db: dict, timestamp: str) -> str:
         name = db["name"]
         bt = db.get("backup_type", "FULL").upper()
-        if bt not in ("FULL", "DIFFERENTIAL"):
-            raise ValueError(f"Unknown backup_type: {bt}")
+        if bt not in ("FULL", "DIFFERENTIAL", "LOG"):
+            raise ValueError(
+                f"Unknown backup_type: {bt}. "
+                f"Valid: FULL, DIFFERENTIAL, LOG"
+            )
 
-        suffix = "diff" if bt == "DIFFERENTIAL" else "full"
-        filename = f"{name}-{suffix}-{timestamp}.bak"
+        # File extension and suffix differ for transaction log backups
+        if bt == "LOG":
+            suffix = "log"
+            ext = "trn"      # standard MSSQL transaction log extension
+        elif bt == "DIFFERENTIAL":
+            suffix = "diff"
+            ext = "bak"
+        else:
+            suffix = "full"
+            ext = "bak"
+
+        filename = f"{name}-{suffix}-{timestamp}.{ext}"
         remote = self._remote_path(filename)
 
         opts = []
@@ -117,8 +130,10 @@ class MSSQLTrigger(BaseTrigger):
         opts.append(f"NAME = N'{name} {bt} backup'")
 
         safe_name = name.replace("]", "]]")
+        # LOG backups use BACKUP LOG, others use BACKUP DATABASE
+        cmd = "BACKUP LOG" if bt == "LOG" else "BACKUP DATABASE"
         sql = (
-            f"BACKUP DATABASE [{safe_name}] "
+            f"{cmd} [{safe_name}] "
             f"TO DISK = N'{remote}' "
             f"WITH {', '.join(opts)};"
         )
@@ -153,16 +168,26 @@ class MSSQLTrigger(BaseTrigger):
             self.log.info("MSSQL OK: %s", version.split("\n")[0])
             for db in self.databases:
                 cur.execute(
-                    "SELECT state_desc FROM sys.databases WHERE name = ?;",
+                    "SELECT state_desc, recovery_model_desc "
+                    "FROM sys.databases WHERE name = ?;",
                     db["name"],
                 )
                 row = cur.fetchone()
                 if not row:
                     raise RuntimeError(f"Database not found: {db['name']}")
-                if row[0] != "ONLINE":
+                state, recovery = row[0], row[1]
+                if state != "ONLINE":
                     self.log.warning(
                         "Database %s is %s (expected ONLINE)",
-                        db["name"], row[0]
+                        db["name"], state
+                    )
+                # LOG backups require FULL or BULK_LOGGED recovery model
+                bt = db.get("backup_type", "FULL").upper()
+                if bt == "LOG" and recovery == "SIMPLE":
+                    raise RuntimeError(
+                        f"Database '{db['name']}' is in SIMPLE recovery model — "
+                        f"BACKUP LOG is not allowed. Change to FULL recovery: "
+                        f"ALTER DATABASE [{db['name']}] SET RECOVERY FULL;"
                     )
             cur.close()
         finally:
