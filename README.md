@@ -92,6 +92,40 @@ backuppy run    -c /etc/backuppy/config.yml
 backuppy list   -c /etc/backuppy/config.yml     # show local + remote backups
 ```
 
+### Creating models from templates
+
+backuppy ships with built-in templates so you can scaffold a new model with
+one command:
+
+```bash
+backuppy new --list                              # see available templates
+
+backuppy new my-db --template postgres           # creates /etc/backuppy/my-db.yml
+backuppy new prod-files --template files
+backuppy new app-mssql --template mssql-full     # MSSQL FULL backup
+backuppy new app-mssql-diff --template mssql-diff
+backuppy new shared/storage --template shared-storage   # for use with extends:
+```
+
+If you don't pass `--template`, backuppy guesses from the model name:
+
+```bash
+backuppy new mssql-prod      # → mssql-full template
+backuppy new postgres-app    # → postgres template
+backuppy new files-www       # → files template
+```
+
+Other useful flags:
+
+```bash
+backuppy new my-model -d /home/user/backups        # write somewhere else
+backuppy new my-model --force                      # overwrite existing
+```
+
+Generated files have `chmod 600` because they may contain credentials. Edit
+them to fill in real hostnames, passwords, and bucket names — every
+placeholder is marked with `TODO` or `CHANGE-ME` comments.
+
 ### Multiple models (like Backup gem's DSL)
 
 backuppy treats each config file as a *model*. You can have many of them —

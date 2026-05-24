@@ -8,6 +8,10 @@ from pathlib import Path
 from . import __version__
 from .config import Config
 from .core import setup_logger, cmd_run, cmd_list, cmd_verify, cmd_models
+from .cmd_new import cmd_new, cmd_list_templates, TEMPLATES
+
+
+DEFAULT_CONFIGS_DIR = "/etc/backuppy"
 
 
 def _collect_configs(configs: list[str] | None,
@@ -31,7 +35,6 @@ def _collect_configs(configs: list[str] | None,
         for p in sorted(d.iterdir()):
             if p.is_file() and p.suffix in (".yml", ".yaml") and \
                not p.name.startswith(("_", ".", "config.example")):
-                # Heuristic: skip files in shared/ subdirs and shared-named files
                 paths.append(p)
 
     if not paths:
@@ -49,22 +52,63 @@ def main() -> int:
     )
     ap.add_argument("--version", action="version",
                     version=f"backuppy {__version__}")
-    ap.add_argument("command", choices=["run", "list", "verify", "models"])
-    ap.add_argument("--config", "-c", action="append",
-                    help="Path to a config YAML (repeatable for multi-run).")
-    ap.add_argument("--configs-dir", "-d",
-                    help="Directory of *.yml/*.yaml configs to run/list.")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="Show what would be done without doing it (run only).")
+
+    sub = ap.add_subparsers(dest="command", required=True,
+                            metavar="COMMAND")
+
+    # ---- run ----
+    p_run = sub.add_parser("run", help="Run one or more backup models")
+    _add_config_args(p_run)
+    p_run.add_argument("--dry-run", action="store_true",
+                       help="Show what would be done without doing it.")
+
+    # ---- list ----
+    p_list = sub.add_parser("list",
+                            help="List backup files (local + remote) per model")
+    _add_config_args(p_list)
+
+    # ---- verify ----
+    p_verify = sub.add_parser("verify",
+                              help="Preflight check: configs, creds, access")
+    _add_config_args(p_verify)
+
+    # ---- models ----
+    p_models = sub.add_parser("models",
+                              help="List discovered models in a directory")
+    _add_config_args(p_models)
+
+    # ---- new ----
+    p_new = sub.add_parser("new", help="Create a new model from a template")
+    p_new.add_argument("name", nargs="?",
+                       help="Model name (also becomes the filename).")
+    p_new.add_argument("--template", "-t",
+                       choices=sorted(TEMPLATES.keys()),
+                       help="Template to use. If omitted, auto-detected from name.")
+    p_new.add_argument("--dir", "-d", default=DEFAULT_CONFIGS_DIR,
+                       help=f"Where to create the file (default: {DEFAULT_CONFIGS_DIR}).")
+    p_new.add_argument("--force", "-f", action="store_true",
+                       help="Overwrite if the file already exists.")
+    p_new.add_argument("--list", action="store_true",
+                       help="List available templates and exit.")
+
     args = ap.parse_args()
 
+    if args.command == "new":
+        if args.list:
+            return cmd_list_templates()
+        if not args.name:
+            print("Error: 'name' is required (or use --list to see templates).",
+                  file=sys.stderr)
+            return 2
+        return cmd_new(args.name, args.template, Path(args.dir).expanduser(),
+                       args.force)
+
+    # All other commands take config paths
     config_paths = _collect_configs(args.config, args.configs_dir)
 
     if args.command == "models":
         return cmd_models(config_paths)
 
-    # For multi-config: load each, set up its own logger, run sequentially.
-    # Return non-zero if ANY of them failed.
     overall = 0
     multi = len(config_paths) > 1
     for cfg_path in config_paths:
@@ -98,6 +142,13 @@ def main() -> int:
                 log.error("###### Model %s FAILED (rc=%d) ######", cfg.name, rc)
 
     return overall
+
+
+def _add_config_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--config", "-c", action="append",
+                        help="Path to a config YAML (repeatable).")
+    parser.add_argument("--configs-dir", "-d",
+                        help="Directory of *.yml/*.yaml configs.")
 
 
 if __name__ == "__main__":

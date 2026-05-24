@@ -7,13 +7,10 @@ so they run without real backends.
 
 ```bash
 pip install moto pyyaml boto3
-python tests/test_sqlite.py
-python tests/test_pro_features.py
-python tests/test_mssql.py
-python tests/test_multi_model.py
+for t in tests/test_*.py; do python3 "$t"; done
 ```
 
-All four should print `OK` and exit 0.
+All five should print `OK` and exit 0.
 
 ## What each test covers
 
@@ -23,3 +20,4 @@ All four should print `OK` and exit 0.
 | `test_pro_features.py`     | Hooks, splitter, S3 upload, checksum verify        |
 | `test_mssql.py`            | MSSQL flow with fake ODBC driver, SMB pickup, S3   |
 | `test_multi_model.py`      | extends, deep-merge, multi-run failure isolation   |
+| `test_new.py`              | `backuppy new` model scaffolding from templates    |
