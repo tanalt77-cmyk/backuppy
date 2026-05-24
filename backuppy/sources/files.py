@@ -10,6 +10,7 @@ import datetime as dt
 import fnmatch
 import glob
 import logging
+import re
 import shutil
 import tarfile
 from pathlib import Path
@@ -26,6 +27,9 @@ class FilesSource:
         # Otherwise, each matched file is copied individually.
         self.archive_name: str = cfg.get("archive_name", "") or ""
         self.log = log
+        # Remember which files were picked up in the LAST pickup() call,
+        # so prefixes() can derive rotation prefixes from real filenames.
+        self._last_picked: list[Path] = []
 
         if not self.paths:
             raise ValueError("FilesSource: 'paths' is required and non-empty")
@@ -117,18 +121,39 @@ class FilesSource:
                     self.log.warning("  could not delete %s: %s", f, e)
             self.log.info("  deleted %d source file(s) after pickup", len(matched))
 
+        # Remember produced files for later prefix derivation
+        self._last_picked = list(produced)
         return produced
+
+    # Match a timestamp like '-20260524-160013' or '-20260524_160013' at the end
+    # of a filename stem. We rotate by everything *before* that timestamp,
+    # so daily backups of the same DB ('work-full-...bak') all share a prefix.
+    _TIMESTAMP_RE = re.compile(r"[-_]\d{8}[-_]\d{6}.*$")
 
     def prefixes(self, model_name: str) -> list[str]:
         """Return filename prefixes used by this source for rotation.
 
-        If archive_name is set, prefix is '<model>-<archive_name>-'.
-        Otherwise, files keep their original names — rotation is trickier
-        and we return empty list (no rotation across runs).
+        Three modes:
+          1. archive_name set → prefix is '<model>-<archive_name>-'
+          2. Files have timestamp pattern (e.g. 'work-full-20260524-160013.bak')
+             → prefix is the part BEFORE the timestamp ('work-full-')
+          3. Otherwise → empty (no rotation, since we can't group runs reliably)
         """
         if self.archive_name:
             return [f"{model_name}-{self.archive_name}-"]
-        return []
+
+        # Derive prefixes from the files we actually picked up in the last run.
+        # Strip the trailing -YYYYMMDD-HHMMSS<ext> part.
+        prefixes: set[str] = set()
+        for p in self._last_picked:
+            name = p.name
+            stripped = self._TIMESTAMP_RE.sub("", name)
+            if stripped != name and stripped:
+                # Keep the part up to and including the last dash, so files like
+                #   work-full-20260524-160013.bak  → 'work-full-'
+                #   avic-diff-20260524-170015.bak  → 'avic-diff-'
+                prefixes.add(stripped + "-")
+        return sorted(prefixes)
 
     def check_access(self) -> None:
         """Preflight: verify at least one path exists or can match something."""
