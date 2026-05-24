@@ -1,29 +1,42 @@
-"""Core orchestration: archive building, hooks, run/list/verify commands."""
+"""Core orchestration: triggers → sources → process → destinations.
+
+Pipeline for one model:
+
+  1. Run hooks.before
+  2. For each trigger in cfg.triggers: run it. (May write files anywhere user told it to.)
+  3. For each source in cfg.sources: pick up matching files into a temporary work_dir.
+  4. For each artifact in work_dir: compress → encrypt → split.
+  5. For each destination: upload each artifact, verify, rotate.
+  6. Run hooks.on_success or hooks.on_failure
+  7. Run hooks.after
+  8. Send notifications
+
+Triggers and sources are decoupled: a trigger writes files somewhere on disk,
+and sources are responsible for finding and picking them up. This lets users:
+- Use just sources (no triggers) for "files already on disk"
+- Use just triggers (no sources) if they want to fire-and-forget
+  [actually: at least one source is required, or pipeline does nothing]
+- Combine multiple triggers + multiple sources freely
+"""
 from __future__ import annotations
 
 import datetime as dt
-import fnmatch
 import logging
 import logging.handlers
-import os
 import socket
 import subprocess
 import sys
-import tarfile
 import tempfile
 import traceback
 from pathlib import Path
-from typing import Iterable
 
-from .config import Config, LogCfg, HooksCfg
-from .compress import compress_file, file_extension_for
+from .config import Config, LogCfg
+from .compress import compress_file
 from .encrypt import encrypt_file
 from .splitter import split_file
 from .notify import notify_all
-from .databases import (
-    BaseDumper, MSSQLDumper, PostgresDumper, MySQLDumper,
-    MongoDumper, RedisDumper, SQLiteDumper,
-)
+from .triggers import build_trigger
+from .sources import build_source
 from .storages import (
     BaseStorage, LocalStorage,
     WebDAVStorage, S3Storage, SFTPStorage,
@@ -59,55 +72,13 @@ def setup_logger(cfg: LogCfg) -> logging.Logger:
 
 
 # ============================================================================
-# File archive
-# ============================================================================
-
-def _matches_any(path: str, patterns: Iterable[str]) -> bool:
-    return any(fnmatch.fnmatch(path, p) for p in patterns)
-
-
-def make_archive(cfg: Config, work_dir: Path, log: logging.Logger) -> Path:
-    """Create a tar (uncompressed; compression handled separately)."""
-    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    archive_name = f"{cfg.name}-{cfg.archive.name}-{timestamp}.tar"
-    archive_path = work_dir / archive_name
-    log.info("Creating archive: %s", archive_path)
-
-    excludes = cfg.archive.excludes
-    skipped = 0
-
-    def filt(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
-        nonlocal skipped
-        if _matches_any(tarinfo.name, excludes) or _matches_any(
-            "/" + tarinfo.name, excludes
-        ):
-            skipped += 1
-            return None
-        return tarinfo
-
-    with tarfile.open(archive_path, "w") as tar:
-        for src in cfg.archive.paths:
-            src_path = Path(src)
-            if not src_path.exists():
-                log.warning("Skipping non-existent path: %s", src)
-                continue
-            log.info("  adding %s", src)
-            tar.add(src, arcname=src_path.name, filter=filt)
-
-    size_mb = archive_path.stat().st_size / 1024 / 1024
-    log.info("Archive ready: %.2f MB (excluded: %d)", size_mb, skipped)
-    return archive_path
-
-
-# ============================================================================
 # Hooks
 # ============================================================================
 
 def run_hooks(stage: str, commands: list[str], log: logging.Logger) -> None:
-    """Run shell hooks. Commands prefixed with '!' are hard errors on failure."""
     if not commands:
         return
-    log.info("Hooks: running %d %s command(s)", len(commands), stage)
+    log.info("Hooks: %s — %d command(s)", stage, len(commands))
     for cmd in commands:
         hard = cmd.startswith("!")
         actual = cmd[1:] if hard else cmd
@@ -123,27 +94,11 @@ def run_hooks(stage: str, commands: list[str], log: logging.Logger) -> None:
 
 
 # ============================================================================
-# Dumpers & storages factory
+# Destinations factory
 # ============================================================================
 
-def build_dumpers(cfg: Config, log: logging.Logger) -> list[BaseDumper]:
-    out: list[BaseDumper] = []
-    if cfg.mssql.enabled and cfg.mssql.databases:
-        out.append(MSSQLDumper(cfg.mssql, log))
-    if cfg.postgres.enabled:
-        out.append(PostgresDumper(cfg.postgres, log))
-    if cfg.mysql.enabled:
-        out.append(MySQLDumper(cfg.mysql, log))
-    if cfg.mongodb.enabled:
-        out.append(MongoDumper(cfg.mongodb, log))
-    if cfg.redis.enabled:
-        out.append(RedisDumper(cfg.redis, log))
-    if cfg.sqlite.enabled and cfg.sqlite.databases:
-        out.append(SQLiteDumper(cfg.sqlite, log))
-    return out
-
-
-def build_remote_storages(cfg: Config, log: logging.Logger) -> list[BaseStorage]:
+def build_destinations(cfg: Config, log: logging.Logger) -> list[BaseStorage]:
+    """Build ALL enabled destinations (excluding local — handled separately)."""
     out: list[BaseStorage] = []
     if cfg.webdav.enabled:
         out.append(WebDAVStorage(cfg.webdav, log))
@@ -161,7 +116,6 @@ def build_remote_storages(cfg: Config, log: logging.Logger) -> list[BaseStorage]
 
 
 def keep_last_for(storage: BaseStorage, cfg: Config) -> int:
-    """Each storage has its own keep_last in its config section."""
     return {
         "webdav": cfg.webdav.keep_last,
         "s3": cfg.s3.keep_last,
@@ -181,24 +135,29 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
     started = dt.datetime.now()
     log.info("=== backuppy '%s' start on %s ===", cfg.name, host)
 
-    dumpers = build_dumpers(cfg, log)
-    remote_storages = build_remote_storages(cfg, log)
-    local_storage = LocalStorage(cfg.local, log)
+    if not cfg.sources:
+        log.error("Model has no 'sources:' — nothing to back up. "
+                  "Add at least one source: { type: files, paths: [...] }")
+        return 2
+
+    triggers = [build_trigger(t, log) for t in cfg.triggers]
+    sources = [build_source(s, log) for s in cfg.sources]
+    remote_dests = build_destinations(cfg, log)
+    local = LocalStorage(cfg.local, log) if cfg.local.enabled else None
 
     if dry_run:
         log.info("[DRY-RUN] no changes will be made")
-        for d in dumpers:
-            log.info("  dumper: %s, prefixes=%s",
-                     type(d).__name__, d.prefixes())
-        if cfg.archive.paths:
-            log.info("  archive: %s (excludes: %s)",
-                     cfg.archive.paths, cfg.archive.excludes)
+        for t in triggers:
+            log.info("  trigger: %s", t.type)
+        for s in sources:
+            log.info("  source: %s paths=%s", s.type, s.paths)
         log.info("  compression: %s", cfg.compression.method)
         if cfg.encryption.enabled:
             log.info("  encryption: %s", cfg.encryption.method)
-        log.info("  local: %s (keep=%d)", cfg.local.path, cfg.local.keep_last)
-        for s in remote_storages:
-            log.info("  remote: %s (keep=%d)", s.name, keep_last_for(s, cfg))
+        if local:
+            log.info("  local: %s (keep=%d)", cfg.local.path, cfg.local.keep_last)
+        for d in remote_dests:
+            log.info("  remote: %s (keep=%d)", d.name, keep_last_for(d, cfg))
         return 0
 
     try:
@@ -207,43 +166,42 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
         log.error("Aborting: %s", e)
         return 1
 
-    success = False
     try:
         with tempfile.TemporaryDirectory(prefix="backuppy-") as tmp:
             work = Path(tmp)
+
+            # 1. Run triggers
+            for t in triggers:
+                log.info("--- Trigger: %s ---", t.type)
+                t.run()
+
+            # 2. Pick up files via sources
             artifacts: list[Path] = []
-
-            # 1. Databases
-            for d in dumpers:
-                artifacts.extend(d.dump_all(work))
-
-            # 2. File archive
-            if cfg.archive.paths:
-                artifacts.append(make_archive(cfg, work, log))
+            for s in sources:
+                artifacts.extend(s.pickup(work, cfg.name))
 
             if not artifacts:
-                log.warning("Nothing to back up")
+                log.warning("No artifacts produced — nothing to upload.")
                 run_hooks("after", cfg.hooks.after, log)
                 return 0
 
-            # 3. Process each artifact independently
+            # 3. Process each artifact
             for art in artifacts:
                 art = compress_file(art, cfg.compression, log)
                 art = encrypt_file(art, cfg.encryption, log)
-
-                # Splitter: produces multiple files for very large ones
                 parts = split_file(art, cfg.splitter, log)
-
-                # Store each part: local first, then remote uploads
                 for part in parts:
-                    local_dest = local_storage.store(part)
-                    for storage in remote_storages:
-                        _upload_with_verify(storage, local_dest, cfg, log)
+                    # local first (acts as a staging area too)
+                    if local:
+                        local_dest = local.store(part)
+                    else:
+                        local_dest = part
+                    for dest in remote_dests:
+                        _upload_with_verify(dest, local_dest, cfg, log)
 
             # 4. Rotation
-            _rotate_all(cfg, dumpers, local_storage, remote_storages, log)
+            _rotate_all(cfg, sources, local, remote_dests, log)
 
-        success = True
     except Exception:
         tb = traceback.format_exc()
         log.error("FAILED:\n%s", tb)
@@ -280,18 +238,21 @@ def _upload_with_verify(storage: BaseStorage, local_dest: Path,
         log.info("  %s verify: OK", storage.name)
 
 
-def _rotate_all(cfg: Config, dumpers: list[BaseDumper],
-                local: LocalStorage, remotes: list[BaseStorage],
-                log: logging.Logger) -> None:
+def _rotate_all(cfg: Config, sources, local, remotes, log: logging.Logger) -> None:
+    """Rotate by source prefixes (only for sources that pack to one archive).
+    For other sources, we can't reliably group across runs — no rotation.
+    """
     prefixes: list[str] = []
-    if cfg.archive.paths:
-        prefixes.append(f"{cfg.name}-{cfg.archive.name}-")
-    for d in dumpers:
-        prefixes.extend(d.prefixes())
+    for s in sources:
+        prefixes.extend(s.prefixes(cfg.name))
 
-    # Local — also rotates by prefix now
-    for p in prefixes:
-        local.rotate(p, cfg.local.keep_last, log)
+    if not prefixes:
+        log.debug("No archive-name prefixes; rotation skipped")
+        return
+
+    if local:
+        for p in prefixes:
+            local.rotate(p, cfg.local.keep_last, log)
 
     for s in remotes:
         keep = keep_last_for(s, cfg)
@@ -300,49 +261,61 @@ def _rotate_all(cfg: Config, dumpers: list[BaseDumper],
 
 
 def cmd_list(cfg: Config, log: logging.Logger) -> int:
-    log.info("Local backups in %s:", cfg.local.path)
-    local = LocalStorage(cfg.local, log)
-    for f in sorted(local.list_files(), key=lambda x: x["name"]):
-        mb = f["size"] / 1024 / 1024
-        print(f"  {f['name']}  ({mb:.2f} MB)")
+    if cfg.local.enabled:
+        log.info("Local backups in %s:", cfg.local.path)
+        local = LocalStorage(cfg.local, log)
+        for f in sorted(local.list_files(), key=lambda x: x["name"]):
+            mb = f["size"] / 1024 / 1024
+            print(f"  {f['name']}  ({mb:.2f} MB)")
 
-    for s in build_remote_storages(cfg, log):
-        log.info("Backups in %s:", s.name)
+    for d in build_destinations(cfg, log):
+        log.info("Backups in %s:", d.name)
         try:
-            for f in sorted(s.list_files(), key=lambda x: x["name"]):
+            for f in sorted(d.list_files(), key=lambda x: x["name"]):
                 mb = f["size"] / 1024 / 1024
                 modified = f.get("modified", "")
                 print(f"  {f['name']}  ({mb:.2f} MB, {modified})")
         except Exception as e:
-            log.error("  %s: %s", s.name, e)
+            log.error("  %s: %s", d.name, e)
     return 0
 
 
 def cmd_verify(cfg: Config, log: logging.Logger) -> int:
     log.info("Config OK, name: %s", cfg.name)
-    for src in cfg.archive.paths:
-        if not Path(src).exists():
-            log.warning("  archive path missing: %s", src)
-        else:
-            log.info("  archive path: %s", src)
 
-    # Local
-    LocalStorage(cfg.local, log).check_access()
+    if not cfg.sources:
+        log.error("Model has no 'sources:' — nothing would be backed up.")
+        return 1
 
-    # Dumpers
-    for d in build_dumpers(cfg, log):
+    # Triggers preflight
+    for tcfg in cfg.triggers:
+        t = build_trigger(tcfg, log)
         try:
-            d.check_connection()
+            t.check()
         except Exception as e:
-            log.error("%s: %s", type(d).__name__, e)
+            log.error("Trigger %s: %s", t.type, e)
             return 1
 
-    # Remote storages
-    for s in build_remote_storages(cfg, log):
+    # Sources preflight (just basic — non-matching is a warning, not error)
+    for scfg in cfg.sources:
+        s = build_source(scfg, log)
         try:
             s.check_access()
+            log.info("Source %s: paths=%s", s.type, s.paths)
         except Exception as e:
-            log.error("%s: %s", s.name, e)
+            log.error("Source %s: %s", s.type, e)
+            return 1
+
+    # Local
+    if cfg.local.enabled:
+        LocalStorage(cfg.local, log).check_access()
+
+    # Destinations
+    for d in build_destinations(cfg, log):
+        try:
+            d.check_access()
+        except Exception as e:
+            log.error("%s: %s", d.name, e)
             return 1
 
     # Encryption preflight
@@ -368,55 +341,24 @@ def cmd_verify(cfg: Config, log: logging.Logger) -> int:
 
 
 def cmd_models(config_paths: list) -> int:
-    """List configured models discovered from a list of config paths."""
+    """List discovered models in a directory."""
     from pathlib import Path as _P
-    print(f"{'Model':<20} {'Sources':<45} {'Destinations'}")
+    print(f"{'Model':<20} {'Triggers':<25} {'Sources':<15} {'Destinations'}")
     print("-" * 90)
     for p in config_paths:
         try:
             cfg = Config.load(str(p))
         except Exception as e:
-            print(f"{_P(p).stem:<20} (failed to load: {e})")
+            print(f"{_P(p).stem:<20} (failed: {e})")
             continue
 
-        sources: list[str] = []
-        if cfg.archive.paths:
-            sources.append(f"files({len(cfg.archive.paths)})")
-        if cfg.mssql.enabled and cfg.mssql.databases:
-            full = sum(1 for d in cfg.mssql.databases
-                       if d.backup_type.upper() == "FULL")
-            diff = sum(1 for d in cfg.mssql.databases
-                       if d.backup_type.upper() == "DIFFERENTIAL")
-            label = f"mssql({len(cfg.mssql.databases)})"
-            if diff and not full:
-                label += "[DIFF]"
-            elif diff and full:
-                label += "[mix]"
-            sources.append(label)
-        if cfg.postgres.enabled:
-            sources.append(
-                f"postgres({len(cfg.postgres.databases) or 'all'})"
-            )
-        if cfg.mysql.enabled:
-            sources.append(
-                f"mysql({len(cfg.mysql.databases) or 'all'})"
-            )
-        if cfg.mongodb.enabled:
-            sources.append(
-                f"mongo({len(cfg.mongodb.databases) or 'all'})"
-            )
-        if cfg.redis.enabled:
-            sources.append("redis")
-        if cfg.sqlite.enabled and cfg.sqlite.databases:
-            sources.append(f"sqlite({len(cfg.sqlite.databases)})")
-
-        dests: list[str] = ["local"]
-        for name in ("webdav", "s3", "sftp", "dropbox", "gcs", "azure"):
-            if getattr(getattr(cfg, name), "enabled", False):
-                dests.append(name)
-
-        sources_str = ", ".join(sources) if sources else "(none)"
-        if len(sources_str) > 43:
-            sources_str = sources_str[:40] + "..."
-        print(f"{cfg.name:<20} {sources_str:<45} {', '.join(dests)}")
+        trig = ", ".join(t.get("type", "?") for t in cfg.triggers) or "(none)"
+        src = ", ".join(s.get("type", "files") for s in cfg.sources) or "(none)"
+        dests = []
+        if cfg.local.enabled:
+            dests.append("local")
+        for n in ("webdav", "s3", "sftp", "dropbox", "gcs", "azure"):
+            if getattr(getattr(cfg, n), "enabled", False):
+                dests.append(n)
+        print(f"{cfg.name:<20} {trig:<25} {src:<15} {', '.join(dests)}")
     return 0

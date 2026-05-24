@@ -1,14 +1,12 @@
-# Shared S3 credentials + logging + verify policy.
-# Referenced by individual model files via `extends: shared/storage.yml`.
+# Shared destination credentials.
+# Referenced from other models via `extends: shared/storage.yml`.
 
-s3:
+webdav:
   enabled: true
-  bucket: my-backups-eu
-  region: eu-central-1
-  access_key_id: "AKIA..."         # set real creds
-  secret_access_key: "..."
-  storage_class: STANDARD_IA
-  keep_last: 30                    # default; can be overridden per model
+  base_url: "https://nextcloud.example.com/remote.php/dav/files/USER/"
+  username: "USER"
+  password: "APP-PASSWORD"
+  keep_last: 30
 
 log:
   file: /var/log/backuppy.log
@@ -16,4 +14,4 @@ log:
 
 verify:
   enabled: true
-  method: checksum
+  method: size

@@ -1,0 +1,137 @@
+"""FilesSource: pick up files from one or more paths or glob patterns.
+
+This is the universal source for backuppy. It doesn't care whether the path
+is a local folder, an SMB mount, an NFS mount, or a temp dir produced by a
+trigger — to backuppy it's all "files on the filesystem".
+"""
+from __future__ import annotations
+
+import datetime as dt
+import fnmatch
+import glob
+import logging
+import shutil
+import tarfile
+from pathlib import Path
+
+
+class FilesSource:
+    type = "files"
+
+    def __init__(self, cfg: dict, log: logging.Logger):
+        self.paths: list[str] = cfg.get("paths", [])
+        self.excludes: list[str] = cfg.get("excludes", [])
+        self.delete_after_pickup: bool = bool(cfg.get("delete_after_pickup", False))
+        # If archive_name is set, all matched files are packed into one tar.
+        # Otherwise, each matched file is copied individually.
+        self.archive_name: str = cfg.get("archive_name", "") or ""
+        self.log = log
+
+        if not self.paths:
+            raise ValueError("FilesSource: 'paths' is required and non-empty")
+
+    def _expand(self) -> list[Path]:
+        """Resolve paths and glob patterns to a concrete list of files."""
+        out: list[Path] = []
+        for pat in self.paths:
+            # glob.glob handles both literal paths and patterns; if literal
+            # is a directory, we walk it.
+            matched = glob.glob(pat, recursive=True)
+            for m in matched:
+                p = Path(m)
+                if p.is_file():
+                    if not self._is_excluded(str(p)):
+                        out.append(p)
+                elif p.is_dir():
+                    # Walk directory and pick up all files
+                    for f in p.rglob("*"):
+                        if f.is_file() and not self._is_excluded(str(f)):
+                            out.append(f)
+        # Deduplicate while preserving order
+        seen: set[Path] = set()
+        unique: list[Path] = []
+        for p in out:
+            r = p.resolve()
+            if r not in seen:
+                seen.add(r)
+                unique.append(p)
+        return unique
+
+    def _is_excluded(self, path: str) -> bool:
+        for pat in self.excludes:
+            if fnmatch.fnmatch(path, pat) or fnmatch.fnmatch("/" + path, pat):
+                return True
+        return False
+
+    def pickup(self, work_dir: Path, model_name: str) -> list[Path]:
+        """Copy/move matched files into work_dir. Returns list of files in work_dir.
+
+        If archive_name is set, pack everything into one tar in work_dir.
+        Otherwise, copy each file individually.
+        """
+        matched = self._expand()
+        if not matched:
+            self.log.warning("FilesSource: no files matched patterns: %s",
+                             self.paths)
+            return []
+
+        timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        total_size = sum(f.stat().st_size for f in matched)
+        self.log.info("FilesSource: %d file(s) matched, %.2f MB total",
+                      len(matched), total_size / 1024 / 1024)
+
+        if self.archive_name:
+            # Pack into a single tar
+            tar_name = f"{model_name}-{self.archive_name}-{timestamp}.tar"
+            tar_path = work_dir / tar_name
+            self.log.info("  → packing into %s", tar_name)
+            with tarfile.open(tar_path, "w") as tar:
+                for f in matched:
+                    # Preserve a reasonable arcname; use just the basename if
+                    # the file came from a glob with mixed parents.
+                    arcname = f.name
+                    tar.add(f, arcname=arcname)
+            produced = [tar_path]
+        else:
+            # Copy each individually
+            produced = []
+            for f in matched:
+                dest = work_dir / f.name
+                # Handle name collisions (two files with same name from different dirs)
+                if dest.exists():
+                    base = dest.stem
+                    suf = dest.suffix
+                    i = 1
+                    while (work_dir / f"{base}-{i}{suf}").exists():
+                        i += 1
+                    dest = work_dir / f"{base}-{i}{suf}"
+                shutil.copy2(f, dest)
+                produced.append(dest)
+
+        # Delete originals if requested
+        if self.delete_after_pickup:
+            for f in matched:
+                try:
+                    f.unlink()
+                except OSError as e:
+                    self.log.warning("  could not delete %s: %s", f, e)
+            self.log.info("  deleted %d source file(s) after pickup", len(matched))
+
+        return produced
+
+    def prefixes(self, model_name: str) -> list[str]:
+        """Return filename prefixes used by this source for rotation.
+
+        If archive_name is set, prefix is '<model>-<archive_name>-'.
+        Otherwise, files keep their original names — rotation is trickier
+        and we return empty list (no rotation across runs).
+        """
+        if self.archive_name:
+            return [f"{model_name}-{self.archive_name}-"]
+        return []
+
+    def check_access(self) -> None:
+        """Preflight: verify at least one path exists or can match something."""
+        # We just try expansion — empty result is a warning, not error
+        # (some sources may not have files at preflight time but will at run time).
+        _ = self._expand()

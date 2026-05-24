@@ -1,27 +1,27 @@
-# Model: postgres-app
-# PostgreSQL application database, dumped to S3 with own prefix and rotation.
-
 extends:
   - shared/storage.yml
-  - shared/notify.yml
 
 name: postgres-app
 
-postgres:
-  enabled: true
-  host: localhost
-  username: postgres
-  databases: [app_production]
+triggers:
+  - type: postgres
+    host: localhost
+    username: postgres
+    output_dir: /tmp/backuppy-postgres-app
+    databases: [appdb]
+
+sources:
+  - type: files
+    paths: ["/tmp/backuppy-postgres-app/*"]
+    delete_after_pickup: true
 
 compression:
   method: zstd
-  level: 10
 
 local:
-  path: /var/backups/postgres
+  enabled: true
+  path: /var/backups/backuppy/postgres-app
   keep_last: 7
 
-# Override the shared S3 keep_last and prefix:
-s3:
-  prefix: postgres-app
-  keep_last: 14
+webdav:
+  remote_path: "Backups/postgres-app"

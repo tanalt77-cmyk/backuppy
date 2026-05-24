@@ -4,34 +4,33 @@
 
 name: {{NAME}}
 
-postgres:
-  enabled: true
-  host: localhost
-  port: 5432
-  username: postgres
-  password: ""                               # or leave blank to use ~/.pgpass / PGPASSWORD env
-  databases: []                              # empty = pg_dumpall (whole cluster + globals)
-  # databases: [myapp, otherapp]             # or list specific DBs
-  format: custom                             # custom | plain | tar | directory
+triggers:
+  - type: postgres
+    host: localhost
+    port: 5432
+    username: postgres
+    password: ""                         # or use ~/.pgpass / PGPASSWORD env
+    output_dir: /tmp/backuppy-{{NAME}}   # where pg_dump writes
+    databases: []                        # [] = pg_dumpall (whole cluster)
+    # databases: [appdb, otherdb]
+    format: custom                       # custom | plain | tar | directory
 
-local:
-  path: /var/backups/backuppy/{{NAME}}
-  keep_last: 7
-
-# TODO: enable a remote destination (uncomment ONE or more)
-#
-# s3:
-#   enabled: true
-#   bucket: my-backups
-#   region: eu-central-1
-#   prefix: {{NAME}}
-#   access_key_id: "AKIA..."
-#   secret_access_key: "..."
-#   keep_last: 30
+sources:
+  - type: files
+    paths:
+      - "/tmp/backuppy-{{NAME}}/*"
+    delete_after_pickup: true            # remove after upload — staging only
 
 compression:
   method: zstd
   level: 10
+
+local:
+  enabled: true
+  path: /var/backups/backuppy/{{NAME}}
+  keep_last: 7
+
+# Uncomment a destination — see files.yml for examples.
 
 verify:
   enabled: true

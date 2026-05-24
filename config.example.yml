@@ -1,122 +1,116 @@
-# backuppy configuration
-# All sections are optional. Enable only what you need.
+# backuppy configuration — v3.0 universal model
+#
+# A model has three layers:
+#   triggers   - things that PRODUCE files (optional; e.g. run BACKUP DATABASE)
+#   sources    - WHERE to pick up files (required)
+#   destinations - WHERE to send them (local, webdav, s3, ...)
+#
+# At minimum you need: name + sources + at least one destination.
+# Triggers are optional — if files already exist on disk, just use sources.
 #
 # Documentation: https://github.com/tanalt77-cmyk/backuppy
 
 name: myserver
 
 # ============================================================================
-# Sources: what to back up
+# TRIGGERS (optional list)
 # ============================================================================
+# Each trigger writes files somewhere on disk. Sources pick them up.
+# A trigger does NOT know where they'll be uploaded. A source does NOT know
+# who put the files there.
 
-# --- Filesystem archive ---
-archive:
-  name: files
-  paths:
-    - /etc
-    - /var/www
-  excludes:
-    - "*/node_modules/*"
-    - "*/.cache/*"
-    - "*.tmp"
-
-# --- MSSQL (Windows server, accessed via TCP/1433 + SMB share) ---
-mssql:
-  enabled: false
-  host: "10.0.0.5"
-  port: 1433
-  username: "backup_user"
-  password: "SECRET"
-  remote_backup_dir: "D:\\Backups\\backuppy"   # Windows path
-  local_mount_dir: "/mnt/mssql-backups"        # same dir, mounted via SMB
-  compression: true
-  checksum: true
-  copy_only: false
-  cleanup_remote: true
-  databases:
-    - { name: AppDB, backup_type: FULL }       # FULL | DIFFERENTIAL
-    - { name: OtherDB, backup_type: FULL }
-
-# --- PostgreSQL ---
-postgres:
-  enabled: false
-  host: localhost
-  port: 5432
-  username: postgres
-  password: ""           # or use ~/.pgpass / PGPASSWORD env
-  databases: []          # empty = pg_dumpall (entire cluster + globals)
-  format: custom         # custom | plain | tar | directory
-  # extra_args: ["--exclude-table=public.huge_log"]
-
-# --- MySQL / MariaDB ---
-mysql:
-  enabled: false
-  host: localhost
-  port: 3306
-  username: root
-  password: ""
-  databases: []          # empty = --all-databases
-  single_transaction: true
-  routines: true
-  triggers: true
-  events: true
-
-# --- MongoDB ---
-mongodb:
-  enabled: false
-  uri: "mongodb://user:pass@localhost:27017/admin?authSource=admin"
-  databases: []          # empty = dump all
-  gzip: true
-  oplog: false           # true for point-in-time consistency (replica sets)
-
-# --- Redis ---
-redis:
-  enabled: false
-  host: localhost
-  port: 6379
-  password: ""
-  rdb_path: /var/lib/redis/dump.rdb
-  use_bgsave: true
-  save_timeout: 300
-
-# --- SQLite ---
-sqlite:
-  enabled: false
-  databases:
-    - /var/www/app/db.sqlite3
-  use_online_backup: true   # safe even on live DBs
+triggers: []
+#
+# Example: run MSSQL BACKUP DATABASE on a remote Windows server
+# - type: mssql
+#   host: "10.0.0.5"
+#   username: "backup_user"
+#   password: "SECRET"
+#   output_dir_windows: "D:\\Backups\\archive_sql\\local"
+#   databases:
+#     - { name: AppDB, backup_type: FULL }
+#     - { name: OtherDB, backup_type: DIFFERENTIAL }
+#   compression: true
+#   checksum: true
+#
+# Example: dump PostgreSQL locally
+# - type: postgres
+#   host: localhost
+#   username: postgres
+#   output_dir: /tmp/backuppy-staging
+#   databases: [appdb]
+#
+# Example: run any shell command (rsync, custom dump scripts, ...)
+# - type: hook
+#   command: "rsync -av server:/data /tmp/staging/"
+#   timeout: 3600
 
 # ============================================================================
-# Processing: compression and encryption
+# SOURCES (required list)
+# ============================================================================
+# Where backuppy picks up files for processing. Paths may include glob
+# patterns (*.bak, **/*.log). Any path that's reachable from this Linux box
+# works — local folders, SMB mounts, NFS mounts, sshfs, anything.
+
+sources:
+  - type: files
+    paths:
+      - /etc
+      - /var/www
+    excludes:
+      - "*/node_modules/*"
+      - "*.tmp"
+    # archive_name: files          # pack all matched into one tar (recommended)
+    # delete_after_pickup: false   # delete source files after copy
+
+# ============================================================================
+# PROCESSING (between sources and destinations)
 # ============================================================================
 
 compression:
-  method: gzip           # gzip | bzip2 | xz | zstd | none
-  level: null            # null = default; gzip/bz2/xz: 1-9; zstd: 1-22
+  method: gzip                     # gzip | bzip2 | xz | zstd | none
+  level: null                      # null = default
 
 encryption:
   enabled: false
-  method: gpg-symmetric  # gpg-symmetric | gpg-asymmetric | openssl
-  # gpg-symmetric:
-  passphrase_file: /etc/backuppy/passphrase    # chmod 600
-  # gpg-asymmetric (encrypt-only on backup host, decrypt elsewhere):
-  recipient: ""          # email or key fingerprint; gpg --import recipient.pub first
-  # openssl AES-256-CBC:
-  openssl_pass_file: /etc/backuppy/openssl-pass
+  method: gpg-symmetric            # gpg-symmetric | gpg-asymmetric | openssl
+  passphrase_file: /etc/backuppy/passphrase
+  # recipient: "backup@example.com"  # for gpg-asymmetric
+  # openssl_pass_file: /etc/backuppy/openssl-pass
+
+splitter:
+  enabled: false
+  chunk_size_mb: 1024
+  only_above_mb: 5000
+
+throttle:
+  enabled: false
+  upload_rate_kbps: 0              # 0 = unlimited
+
+verify:
+  enabled: true
+  method: size                     # size | checksum
+
+hooks:
+  before: []
+  after: []
+  on_success: []
+  on_failure: []
 
 # ============================================================================
-# Storages
+# DESTINATIONS
 # ============================================================================
 
 local:
+  enabled: true
   path: /var/backups/backuppy
   keep_last: 5
 
 webdav:
   enabled: false
-  base_url: "https://u123456.your-storageshare.de/remote.php/dav/files/u123456/"
+  base_url: "https://nextcloud.example.com/remote.php/dav/files/USER/"
   remote_path: "Backups/myserver"
-  username: "u123456"
+  username: "USER"
   password: "APP-PASSWORD"
   keep_last: 14
 
@@ -125,12 +119,10 @@ s3:
   bucket: "my-backups-bucket"
   region: "eu-central-1"
   prefix: "myserver"
-  # Leave keys empty to use IAM role / ~/.aws / env:
   access_key_id: ""
   secret_access_key: ""
-  # For S3-compatible (MinIO, Wasabi, Backblaze B2, etc.):
-  # endpoint_url: "https://s3.eu-central-003.backblazeb2.com"
-  storage_class: STANDARD_IA   # STANDARD | STANDARD_IA | GLACIER_IR | DEEP_ARCHIVE
+  # endpoint_url: "https://s3.eu-central-003.backblazeb2.com"   # for B2/MinIO
+  storage_class: STANDARD_IA
   server_side_encryption: AES256
   keep_last: 30
 
@@ -139,21 +131,13 @@ sftp:
   host: backup.example.com
   port: 22
   username: backup
-  # Either password OR key_file (key_file preferred):
-  password: ""
   key_file: /root/.ssh/id_ed25519
-  key_passphrase: ""
   remote_path: "backups/myserver"
   keep_last: 10
-  known_hosts: /root/.ssh/known_hosts   # leave empty to disable host key check (insecure)
 
 dropbox:
   enabled: false
-  # Either short-lived access_token or long-lived refresh_token + app_key:
   access_token: ""
-  refresh_token: ""
-  app_key: ""
-  app_secret: ""
   remote_path: "/Backups/myserver"
   keep_last: 30
 
@@ -161,74 +145,44 @@ gcs:
   enabled: false
   bucket: "my-gcs-bucket"
   prefix: "myserver"
-  credentials_file: /etc/backuppy/gcs-sa.json   # service account JSON
-  project_id: ""
-  storage_class: STANDARD       # STANDARD | NEARLINE | COLDLINE | ARCHIVE
+  credentials_file: /etc/backuppy/gcs-sa.json
   keep_last: 30
 
 azure:
   enabled: false
   account_name: "mystorageacct"
-  account_key: "..."
-  # connection_string: "DefaultEndpointsProtocol=https;..."
+  account_key: ""
   container: "backups"
   prefix: "myserver"
-  tier: Hot                     # Hot | Cool | Archive
   keep_last: 30
 
 # ============================================================================
-# Notifiers
+# NOTIFIERS
 # ============================================================================
 
 email:
   enabled: false
-  when: on_failure              # always | on_failure
+  when: on_failure                 # always | on_failure
   smtp_host: smtp.example.com
   smtp_port: 587
   smtp_user: backups@example.com
-  smtp_password: "SECRET"
-  use_tls: true
+  smtp_password: ""
   from_addr: backups@example.com
   to_addrs:
     - admin@example.com
 
 telegram:
   enabled: false
-  when: on_failure              # always | on_failure
-  bot_token: "123456:ABC-DEF..."   # from @BotFather
-  chat_id: "-100123456789"         # personal chat or @channelname
+  when: on_failure
+  bot_token: "123456:ABC-DEF..."
+  chat_id: "-100123456789"
 
 # ============================================================================
-# Pro features
-# ============================================================================
-
-splitter:
-  enabled: false
-  chunk_size_mb: 1024           # split into 1 GB parts
-  only_above_mb: 5000           # split only files > 5 GB
-
-throttle:
-  enabled: false
-  upload_rate_kbps: 0           # 0 = unlimited; example: 1000 = 1 MB/s
-
-verify:
-  enabled: true
-  method: size                  # size | checksum (where supported)
-
-hooks:
-  # Shell commands to run at lifecycle points.
-  # Prefix command with '!' to make non-zero exit a hard error.
-  before: []                    # e.g. ["systemctl stop myapp"]
-  after: []                     # e.g. ["systemctl start myapp"]   (runs even on failure)
-  on_success: []                # e.g. ["curl https://hc-ping.com/abc-123"]
-  on_failure: []                # e.g. ["!echo CRITICAL | wall"]
-
-# ============================================================================
-# Logging
+# LOGGING
 # ============================================================================
 
 log:
   file: /var/log/backuppy.log
-  max_bytes: 5242880            # 5 MB
+  max_bytes: 5242880               # 5 MB
   backup_count: 5
-  level: INFO                   # DEBUG | INFO | WARNING | ERROR
+  level: INFO

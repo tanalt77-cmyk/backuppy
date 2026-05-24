@@ -1,3 +1,3 @@
 """backuppy - modular backup tool inspired by Backup gem."""
 
-__version__ = "2.2.0"
+__version__ = "3.0.0"
