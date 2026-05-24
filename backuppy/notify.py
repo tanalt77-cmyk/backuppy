@@ -1,4 +1,14 @@
-"""Notification channels: Email (SMTP) and Telegram (Bot API)."""
+"""Notification channels: Email (SMTP) and Telegram (Bot API).
+
+Notification triggers (the `when:` field) — full set:
+
+  always       — always send (success / warning / failure)
+  on_failure   — only when the run raised an exception
+  on_warning   — successful run, but at least one WARNING was logged
+  on_success   — clean successful run (no warnings)
+  on_issue     — warning or failure (anything not perfectly clean)
+  never        — never send (handy to disable a channel without removing it)
+"""
 from __future__ import annotations
 
 import logging
@@ -9,6 +19,49 @@ from email.message import EmailMessage
 import requests
 
 from .config import EmailCfg, TelegramCfg
+
+
+# Valid values for the `when:` field
+VALID_WHEN = {"always", "on_failure", "on_warning", "on_success",
+              "on_issue", "never"}
+
+
+class WarningCollector(logging.Handler):
+    """A log Handler that collects WARNING+ messages during a backup run.
+
+    Attach to the backuppy logger; later read .messages and detach when done.
+    """
+
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self.messages.append(self.format(record))
+        except Exception:
+            self.handleError(record)
+
+
+def should_notify(when: str, outcome: str) -> bool:
+    """Decide whether a channel with `when` should fire given the run `outcome`.
+
+    outcome ∈ {"success", "warning", "failure"}
+    """
+    if when == "never":
+        return False
+    if when == "always":
+        return True
+    if when == "on_failure":
+        return outcome == "failure"
+    if when == "on_warning":
+        return outcome == "warning"
+    if when == "on_success":
+        return outcome == "success"
+    if when == "on_issue":
+        return outcome in ("warning", "failure")
+    # Unknown — fail safe (notify so user notices the misconfig)
+    return True
 
 
 def send_email(cfg: EmailCfg, subject: str, body: str,
@@ -43,7 +96,6 @@ def send_telegram(cfg: TelegramCfg, subject: str, body: str,
         log.error("Telegram: bot_token and chat_id required")
         return
 
-    # Telegram message limit is 4096 chars; trim body if needed
     text = f"*{subject}*\n\n```\n{body}\n```"
     if len(text) > 4000:
         text = text[:3990] + "\n[...]```"
@@ -65,12 +117,16 @@ def send_telegram(cfg: TelegramCfg, subject: str, body: str,
 
 
 def notify_all(email_cfg: EmailCfg, telegram_cfg: TelegramCfg,
-               trigger: str, subject: str, body: str,
+               outcome: str, subject: str, body: str,
                log: logging.Logger) -> None:
-    """Dispatch to all configured channels whose 'when' matches trigger."""
-    for ch_cfg, sender in [(email_cfg, send_email), (telegram_cfg, send_telegram)]:
+    """Dispatch to all configured channels whose `when` matches `outcome`."""
+    for ch_cfg, sender in [(email_cfg, send_email),
+                           (telegram_cfg, send_telegram)]:
         if not ch_cfg.enabled:
             continue
         when = getattr(ch_cfg, "when", "on_failure")
-        if when == "always" or when == trigger:
+        if when not in VALID_WHEN:
+            log.warning("Notification: unknown when=%r, treating as on_failure", when)
+            when = "on_failure"
+        if should_notify(when, outcome):
             sender(ch_cfg, subject, body, log)

@@ -131,6 +131,7 @@ def keep_last_for(storage: BaseStorage, cfg: Config) -> int:
 # ============================================================================
 
 def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
+    from .notify import WarningCollector
     host = socket.gethostname()
     started = dt.datetime.now()
     log.info("=== backuppy '%s' start on %s ===", cfg.name, host)
@@ -139,6 +140,11 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
         log.error("Model has no 'sources:' — nothing to back up. "
                   "Add at least one source: { type: files, paths: [...] }")
         return 2
+
+    # Attach warning collector for this run only
+    warn_collector = WarningCollector()
+    warn_collector.setFormatter(logging.Formatter("%(message)s"))
+    log.addHandler(warn_collector)
 
     triggers = [build_trigger(t, log) for t in cfg.triggers]
     sources = [build_source(s, log) for s in cfg.sources]
@@ -182,8 +188,8 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
 
             if not artifacts:
                 log.warning("No artifacts produced — nothing to upload.")
-                run_hooks("after", cfg.hooks.after, log)
-                return 0
+                # fall through — notify will fire as 'warning' due to the
+                # collected warning above
 
             # 3. Process each artifact
             for art in artifacts:
@@ -207,10 +213,17 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
         log.error("FAILED:\n%s", tb)
         run_hooks("on_failure", cfg.hooks.on_failure, log)
         run_hooks("after", cfg.hooks.after, log)
-        notify_all(cfg.email, cfg.telegram, "on_failure",
+        log.removeHandler(warn_collector)
+        body = f"Backup failed at {started:%Y-%m-%d %H:%M:%S}\n\n{tb}"
+        if warn_collector.messages:
+            body += (
+                f"\n\nWarnings collected before failure "
+                f"({len(warn_collector.messages)}):\n  - "
+                + "\n  - ".join(warn_collector.messages)
+            )
+        notify_all(cfg.email, cfg.telegram, "failure",
                    f"[backuppy] FAIL {cfg.name} @ {host}",
-                   f"Backup failed at {started:%Y-%m-%d %H:%M:%S}\n\n{tb}",
-                   log)
+                   body, log)
         return 1
 
     elapsed = (dt.datetime.now() - started).total_seconds()
@@ -218,10 +231,24 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
 
     run_hooks("on_success", cfg.hooks.on_success, log)
     run_hooks("after", cfg.hooks.after, log)
-    notify_all(cfg.email, cfg.telegram, "always",
-               f"[backuppy] OK {cfg.name} @ {host}",
-               f"Backup finished successfully in {elapsed:.1f}s.",
-               log)
+    log.removeHandler(warn_collector)
+
+    if warn_collector.messages:
+        outcome = "warning"
+        subject = f"[backuppy] WARN {cfg.name} @ {host}"
+        body = (
+            f"Backup completed with warnings at "
+            f"{started:%Y-%m-%d %H:%M:%S}\n"
+            f"Total time: {elapsed:.1f}s\n\n"
+            f"Warnings ({len(warn_collector.messages)}):\n  - "
+            + "\n  - ".join(warn_collector.messages)
+        )
+    else:
+        outcome = "success"
+        subject = f"[backuppy] OK {cfg.name} @ {host}"
+        body = f"Backup finished successfully in {elapsed:.1f}s."
+
+    notify_all(cfg.email, cfg.telegram, outcome, subject, body, log)
     return 0
 
 

@@ -32,6 +32,19 @@ class WebDAVStorage(BaseStorage):
         self.auth = HTTPBasicAuth(cfg.username, cfg.password)
         self.base = cfg.base_url.rstrip("/") + "/"
 
+        # Persistent HTTP session — keeps TCP+TLS connection alive across
+        # chunked PUTs, eliminating ~300ms handshake per chunk.
+        self._session = requests.Session()
+        self._session.auth = self.auth
+        # Increase connection pool to handle quick succession of PUTs
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=4,
+            pool_maxsize=4,
+            max_retries=0,            # we handle retries ourselves
+        )
+        self._session.mount("http://", adapter)
+        self._session.mount("https://", adapter)
+
         # For chunked upload we need a separate endpoint:
         # https://<host>/remote.php/dav/uploads/<user>/
         # We derive it from base_url by replacing 'files/<user>' segment.
@@ -54,7 +67,7 @@ class WebDAVStorage(BaseStorage):
         parts = [p for p in remote_dir.strip("/").split("/") if p]
         for i in range(1, len(parts) + 1):
             url = self._url("/".join(parts[:i])) + "/"
-            r = requests.request("MKCOL", url, auth=self.auth,
+            r = self._session.request("MKCOL", url,
                                  timeout=self.cfg.timeout,
                                  verify=self.cfg.verify_tls)
             if r.status_code not in (201, 405, 301):
@@ -105,7 +118,7 @@ class WebDAVStorage(BaseStorage):
         try:
             with open(local, "rb") as f:
                 stream = ProgressFile(f, progress)
-                r = requests.put(url, data=stream, auth=self.auth,
+                r = self._session.put(url, data=stream,
                                  timeout=self.cfg.timeout,
                                  verify=self.cfg.verify_tls,
                                  headers={"Content-Length": str(size)})
@@ -148,7 +161,7 @@ class WebDAVStorage(BaseStorage):
 
         # Phase 1: create the upload folder (MKCOL)
         self.log.debug("WebDAV chunked: MKCOL %s", upload_dir)
-        r = requests.request("MKCOL", upload_dir, auth=self.auth,
+        r = self._session.request("MKCOL", upload_dir,
                              timeout=self.cfg.timeout,
                              verify=self.cfg.verify_tls,
                              headers={"Destination": final_url})
@@ -178,10 +191,9 @@ class WebDAVStorage(BaseStorage):
             # Phase 3: MOVE the .file pseudo-resource → final location.
             # Nextcloud will assemble all chunks and place them at Destination.
             self.log.debug("WebDAV chunked: MOVE .file → %s", final_url)
-            r = requests.request(
+            r = self._session.request(
                 "MOVE",
                 upload_dir + ".file",
-                auth=self.auth,
                 timeout=self.cfg.timeout,
                 verify=self.cfg.verify_tls,
                 headers={
@@ -199,7 +211,7 @@ class WebDAVStorage(BaseStorage):
             progress.done(success=False)
             # Try to clean up the abandoned upload folder
             try:
-                requests.delete(upload_dir, auth=self.auth,
+                self._session.delete(upload_dir,
                                 timeout=self.cfg.timeout,
                                 verify=self.cfg.verify_tls)
             except Exception:
@@ -214,8 +226,8 @@ class WebDAVStorage(BaseStorage):
         last_err: Exception | None = None
         for attempt in range(1, self.cfg.chunked_retries + 2):
             try:
-                r = requests.put(
-                    chunk_url, data=data, auth=self.auth,
+                r = self._session.put(
+                    chunk_url, data=data,
                     timeout=self.cfg.timeout,
                     verify=self.cfg.verify_tls,
                     headers={
@@ -265,7 +277,7 @@ class WebDAVStorage(BaseStorage):
             '<d:displayname/><d:getcontentlength/><d:getlastmodified/>'
             '</d:prop></d:propfind>'
         )
-        r = requests.request("PROPFIND", url, data=body, auth=self.auth,
+        r = self._session.request("PROPFIND", url, data=body,
                              headers={"Depth": "1",
                                       "Content-Type": "application/xml"},
                              timeout=self.cfg.timeout,
@@ -296,7 +308,7 @@ class WebDAVStorage(BaseStorage):
 
     def delete(self, file_id: str) -> None:
         url = self._url(self.cfg.remote_path, file_id)
-        r = requests.delete(url, auth=self.auth,
+        r = self._session.delete(url,
                             timeout=self.cfg.timeout,
                             verify=self.cfg.verify_tls)
         if r.status_code not in (200, 204, 404):
@@ -314,7 +326,7 @@ class WebDAVStorage(BaseStorage):
     def verify(self, local: Path, file_id: str, method: str,
                log: logging.Logger) -> bool:
         url = self._url(self.cfg.remote_path, file_id)
-        r = requests.head(url, auth=self.auth, timeout=self.cfg.timeout,
+        r = self._session.head(url, timeout=self.cfg.timeout,
                           verify=self.cfg.verify_tls)
         if r.status_code != 200:
             log.error("WebDAV verify: HEAD %s → %s", url, r.status_code)

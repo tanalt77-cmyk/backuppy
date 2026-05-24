@@ -123,7 +123,7 @@ class WebDAVCfg:
     # Set chunked: false to disable entirely (works only with raw WebDAV servers).
     chunked: bool = True
     chunked_threshold_mb: int = 500     # use chunked for files >= this size
-    chunked_chunk_size_mb: int = 10     # size of each chunk
+    chunked_chunk_size_mb: int = 50     # size of each chunk
     chunked_retries: int = 3            # retry per-chunk on network errors
 
 
