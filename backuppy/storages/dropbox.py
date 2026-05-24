@@ -47,6 +47,7 @@ class DropboxStorage(BaseStorage):
     def upload(self, local: Path) -> str:
         import dropbox
         from dropbox.files import WriteMode, CommitInfo, UploadSessionCursor
+        from ..progress import Progress
 
         remote = self._remote(local.name)
         size = local.stat().st_size
@@ -55,24 +56,34 @@ class DropboxStorage(BaseStorage):
                       local.name, size_mb, remote)
 
         chunk = self.cfg.chunk_size_mb * 1024 * 1024
-        with open(local, "rb") as f:
-            if size <= chunk:
-                self.client.files_upload(f.read(), remote,
-                                         mode=WriteMode.overwrite)
-            else:
-                # Chunked upload via upload_session
-                session = self.client.files_upload_session_start(f.read(chunk))
-                cursor = UploadSessionCursor(session_id=session.session_id,
-                                             offset=f.tell())
-                commit = CommitInfo(path=remote, mode=WriteMode.overwrite)
-                while f.tell() < size - chunk:
-                    self.client.files_upload_session_append_v2(
-                        f.read(chunk), cursor
+        progress = Progress("Uploading (dropbox)", total_bytes=size,
+                            label=local.name, log=self.log)
+        try:
+            with open(local, "rb") as f:
+                if size <= chunk:
+                    self.client.files_upload(f.read(), remote,
+                                             mode=WriteMode.overwrite)
+                    progress.set(size)
+                else:
+                    session = self.client.files_upload_session_start(f.read(chunk))
+                    progress.set(f.tell())
+                    cursor = UploadSessionCursor(session_id=session.session_id,
+                                                 offset=f.tell())
+                    commit = CommitInfo(path=remote, mode=WriteMode.overwrite)
+                    while f.tell() < size - chunk:
+                        self.client.files_upload_session_append_v2(
+                            f.read(chunk), cursor
+                        )
+                        cursor.offset = f.tell()
+                        progress.set(f.tell())
+                    self.client.files_upload_session_finish(
+                        f.read(), cursor, commit
                     )
-                    cursor.offset = f.tell()
-                self.client.files_upload_session_finish(
-                    f.read(), cursor, commit
-                )
+                    progress.set(size)
+            progress.done()
+        except Exception:
+            progress.done(success=False)
+            raise
         return f"dropbox:{remote}"
 
     def list_files(self) -> list[dict]:

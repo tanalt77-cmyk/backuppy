@@ -63,15 +63,26 @@ class SFTPStorage(BaseStorage):
         return posixpath.join(self.cfg.remote_path, *parts)
 
     def upload(self, local: Path) -> str:
+        from ..progress import Progress
         client, sftp = self._connect()
         try:
             self._ensure_dir(sftp, self.cfg.remote_path)
             remote_path = self._remote(local.name)
-            size_mb = local.stat().st_size / 1024 / 1024
+            size = local.stat().st_size
+            size_mb = size / 1024 / 1024
             self.log.info("SFTP: uploading %s (%.2f MB) → %s@%s:%s",
                           local.name, size_mb,
                           self.cfg.username, self.cfg.host, remote_path)
-            sftp.put(str(local), remote_path)
+            progress = Progress("Uploading (sftp)", total_bytes=size,
+                                label=local.name, log=self.log)
+            try:
+                # paramiko sftp.put callback receives (transferred, total)
+                sftp.put(str(local), remote_path,
+                         callback=lambda done, _total: progress.set(done))
+                progress.done()
+            except Exception:
+                progress.done(success=False)
+                raise
             return f"sftp://{self.cfg.username}@{self.cfg.host}{remote_path}"
         finally:
             sftp.close()

@@ -140,6 +140,9 @@ def main() -> int:
     )
     ap.add_argument("--version", action="version",
                     version=f"backuppy {__version__}")
+    ap.add_argument("--no-progress", action="store_true",
+                    help="Disable progress bars and progress log lines "
+                         "(useful in cron).")
 
     sub = ap.add_subparsers(dest="command", required=True,
                             metavar="COMMAND")
@@ -180,6 +183,11 @@ def main() -> int:
                        help="List available templates and exit.")
 
     args = ap.parse_args()
+
+    # Apply global --no-progress flag
+    if args.no_progress:
+        from . import progress
+        progress.disable()
 
     if args.command == "new":
         if args.list:

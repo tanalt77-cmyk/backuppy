@@ -39,17 +39,31 @@ class WebDAVStorage(BaseStorage):
                 raise RuntimeError(f"MKCOL {url} → {r.status_code} {r.text[:200]}")
 
     def upload(self, local: Path) -> str:
+        from ..progress import Progress, ProgressFile
         self._ensure_dir(self.cfg.remote_path)
         url = self._url(self.cfg.remote_path, local.name)
-        size_mb = local.stat().st_size / 1024 / 1024
+        size = local.stat().st_size
+        size_mb = size / 1024 / 1024
         self.log.info("WebDAV: uploading %s (%.2f MB) → %s",
                       local.name, size_mb, url)
-        with open(local, "rb") as f:
-            r = requests.put(url, data=f, auth=self.auth,
-                             timeout=self.cfg.timeout,
-                             verify=self.cfg.verify_tls)
-        if r.status_code not in (200, 201, 204):
-            raise RuntimeError(f"PUT {url} → {r.status_code} {r.text[:200]}")
+        progress = Progress("Uploading (webdav)", total_bytes=size,
+                            label=local.name, log=self.log)
+        try:
+            with open(local, "rb") as f:
+                stream = ProgressFile(f, progress)
+                # requests-PUT chunked: we send the wrapped stream as data;
+                # requests pulls .read() iteratively, which advances progress.
+                r = requests.put(url, data=stream, auth=self.auth,
+                                 timeout=self.cfg.timeout,
+                                 verify=self.cfg.verify_tls,
+                                 headers={"Content-Length": str(size)})
+            if r.status_code not in (200, 201, 204):
+                progress.done(success=False)
+                raise RuntimeError(f"PUT {url} → {r.status_code} {r.text[:200]}")
+            progress.done()
+        except Exception:
+            progress.done(success=False)
+            raise
         return url
 
     def list_files(self) -> list[dict]:

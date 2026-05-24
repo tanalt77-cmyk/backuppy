@@ -50,9 +50,11 @@ class S3Storage(BaseStorage):
 
     def upload(self, local: Path) -> str:
         from boto3.s3.transfer import TransferConfig
+        from ..progress import Progress, progress_callback
 
         key = self._key(local.name)
-        size_mb = local.stat().st_size / 1024 / 1024
+        size = local.stat().st_size
+        size_mb = size / 1024 / 1024
         self.log.info("S3: uploading %s (%.2f MB) → s3://%s/%s",
                       local.name, size_mb, self.cfg.bucket, key)
 
@@ -66,10 +68,18 @@ class S3Storage(BaseStorage):
             use_threads=True,
         )
 
-        self.client.upload_file(
-            Filename=str(local), Bucket=self.cfg.bucket, Key=key,
-            ExtraArgs=extra, Config=transfer,
-        )
+        progress = Progress("Uploading (s3)", total_bytes=size,
+                            label=local.name, log=self.log)
+        try:
+            self.client.upload_file(
+                Filename=str(local), Bucket=self.cfg.bucket, Key=key,
+                ExtraArgs=extra, Config=transfer,
+                Callback=progress_callback(progress),
+            )
+            progress.done()
+        except Exception:
+            progress.done(success=False)
+            raise
         return f"s3://{self.cfg.bucket}/{key}"
 
     def list_files(self) -> list[dict]:
