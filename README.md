@@ -47,12 +47,12 @@ bash install.sh -s -- --update          # update existing install
 
 ```bash
 # By model name (looks in /etc/backuppy/):
-backuppy run pixo                          # run /etc/backuppy/pixo.yml
-backuppy verify pixo                       # preflight check
-backuppy run pixo files-www mssql-prod     # run multiple models
+backuppy run myserver                          # run /etc/backuppy/myserver.yml
+backuppy verify myserver                       # preflight check
+backuppy run myserver files-www mssql-prod     # run multiple models
 backuppy run --all                         # run everything in /etc/backuppy/
 backuppy models                            # list discovered models
-backuppy list pixo                         # show stored backups for a model
+backuppy list myserver                         # show stored backups for a model
 
 # By explicit path (works anywhere):
 backuppy run -c /path/to/some.yml --dry-run
@@ -64,7 +64,7 @@ The fastest way to start: generate a model from a template.
 
 ```bash
 backuppy new --list                       # see available templates
-backuppy new pixo --template mssql-full   # create /etc/backuppy/pixo.yml
+backuppy new myserver --template mssql-full   # create /etc/backuppy/myserver.yml
 backuppy new app-files --template files
 backuppy new pg-prod --template postgres
 ```
@@ -72,8 +72,8 @@ backuppy new pg-prod --template postgres
 Generated files include comments explaining every field. Open and edit:
 
 ```bash
-nano /etc/backuppy/pixo.yml      # fill in TODO placeholders
-chmod 600 /etc/backuppy/pixo.yml # protect credentials
+nano /etc/backuppy/myserver.yml      # fill in TODO placeholders
+chmod 600 /etc/backuppy/myserver.yml # protect credentials
 ```
 
 Available templates:
@@ -94,7 +94,7 @@ The template is auto-detected from the name if `--template` is omitted:
 Generated files default to `/etc/backuppy/`. Override with `--dir`:
 
 ```bash
-backuppy new pixo --template mssql-full --dir /tmp/configs/
+backuppy new myserver --template mssql-full --dir /tmp/configs/
 ```
 
 ## Examples
@@ -168,19 +168,74 @@ webdav:
   keep_last: 30
 ```
 
+### Group by run (one folder per backup run)
+
+Set `group_by_run: true` to make backuppy create a per-run subdirectory
+named `YYYYMMDD-HHMMSS` inside every destination, and put all files of
+that run inside it. Rotation then keeps the last N **folders** instead
+of the last N files-per-prefix.
+
+```yaml
+name: myserver
+group_by_run: true              # ← all destinations get per-run subdir
+
+triggers:
+  - type: mssql
+    ...
+    databases:
+      - { name: AppDB, backup_type: FULL }
+      - { name: OtherDB, backup_type: FULL }
+      # ...add as many as you need
+    static_local_name: true     # SQL writes AppDB-full.bak (no timestamp)
+
+sources:
+  - type: files
+    paths: ["/mnt/win-server1/backuppy/*.bak"]
+
+local:
+  enabled: true
+  path: /var/backups/myserver
+  keep_last: 7                  # keep 7 run-folders
+
+webdav:
+  enabled: true
+  base_url: "https://nextcloud.example.com/remote.php/dav/files/USER/"
+  remote_path: "Backups/myserver/full"
+  username: USER
+  password: APP-PASSWORD
+  keep_last: 7                  # keep 7 run-folders
+```
+
+Result in Nextcloud after a week:
+
+```
+Backups/myserver/full/
+├── 20260518-021713/
+│   ├── AppDB-full.bak
+│   ├── OtherDB-full.bak
+│   └── ...
+├── 20260519-021713/
+│   └── ...
+├── 20260520-021713/
+└── 20260524-021713/            # 7 most recent kept
+```
+
+Each folder is a complete snapshot of all 8 databases at that moment —
+makes point-in-time recovery trivial.
+
 ### MSSQL with single local copy (static names + timestamped upload)
 
 By default, every MSSQL backup creates a unique file:
-`work-full-20260525-021713.bak`. These accumulate on the Windows side and
+`AppDB-full-20260525-021713.bak`. These accumulate on the Windows side and
 need cleanup (`delete_after_pickup: true` or manual rotation on Windows).
 
 Alternative: tell SQL Server to write to a *static* filename like
-`work-full.bak` — each new backup overwrites the previous local copy.
+`AppDB-full.bak` — each new backup overwrites the previous local copy.
 backuppy then renames with a timestamp when uploading, so cloud history
 is still complete.
 
 ```yaml
-name: pixo
+name: myserver
 
 triggers:
   - type: mssql
@@ -189,10 +244,10 @@ triggers:
     password: SECRET
     output_dir_windows: "D:\\Backups\\backuppy"
     databases:
-      - { name: work, backup_type: FULL }
-      - { name: avic, backup_type: FULL }
+      - { name: AppDB, backup_type: FULL }
+      - { name: OtherDB, backup_type: FULL }
     compression: true
-    static_local_name: true              # SQL writes work-full.bak (no timestamp)
+    static_local_name: true              # SQL writes AppDB-full.bak (no timestamp)
 
 sources:
   - type: files
@@ -206,18 +261,17 @@ local:
 webdav:
   enabled: true
   base_url: "https://nextcloud.example.com/remote.php/dav/files/USER/"
-  remote_path: "Backups/pixo/full"
+  remote_path: "Backups/myserver/full"
   username: USER
   password: APP-PASSWORD
   keep_last: 7                           # rotated normally by prefix
 ```
 
 Result:
-- **On Windows**: only `work-full.bak`, `avic-full.bak` — one fresh copy per DB.
-- **In Nextcloud**: `work-full-20260525-021713.bak` history, last 7 kept.
+- **On Windows**: only `AppDB-full.bak`, `OtherDB-full.bak` — one fresh copy per DB.
+- **In Nextcloud**: `AppDB-full-20260525-021713.bak` history, last 7 kept.
 
-Pair with `mssql-diff` (DIFFERENTIAL) and `mssql-log` (transaction log)
-models for full point-in-time recovery.
+Pair with `mssql-diff` and `mssql-log` templates for full point-in-time recovery.
 
 ### Custom hook trigger
 
@@ -239,8 +293,8 @@ sources:
 backuppy treats each YAML file as a model. Run individually, in groups, or all:
 
 ```bash
-backuppy run pixo                          # one model by name
-backuppy run pixo files-www                # multiple models by name
+backuppy run myserver                          # one model by name
+backuppy run myserver files-www                # multiple models by name
 backuppy run --all                         # all models in /etc/backuppy/
 backuppy run -c /path/to/external.yml      # external file by path
 ```
@@ -340,7 +394,7 @@ PATH=/usr/local/bin:/usr/bin:/bin
 0 2 * * *   /usr/local/bin/backuppy run mssql-full
 
 # Hourly DIFFERENTIAL (except 02:00)
-0 0-1,3-23 * * *   /usr/local/bin/backuppy run mssql-diff
+0 0-1,3-23 * * *   /usr/local/bin/backuppy run myserver-diff
 
 # Run everything daily at 03:00
 0 3 * * *   /usr/local/bin/backuppy run --all

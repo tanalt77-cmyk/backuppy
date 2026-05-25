@@ -63,6 +63,13 @@ class WebDAVStorage(BaseStorage):
         path = "/".join(quote(p.strip("/"), safe="/") for p in parts if p)
         return self.base + path
 
+    def _target_dir(self) -> str:
+        """The remote directory files actually go into. Includes run-subdir
+        if set_run_subdir() was called."""
+        if self._run_subdir:
+            return f"{self.cfg.remote_path}/{self._run_subdir}"
+        return self.cfg.remote_path
+
     def _ensure_dir(self, remote_dir: str) -> None:
         parts = [p for p in remote_dir.strip("/").split("/") if p]
         for i in range(1, len(parts) + 1):
@@ -107,8 +114,9 @@ class WebDAVStorage(BaseStorage):
 
     def _upload_direct(self, local: Path) -> str:
         from ..progress import Progress, ProgressFile
-        self._ensure_dir(self.cfg.remote_path)
-        url = self._url(self.cfg.remote_path, local.name)
+        target_dir = self._target_dir()
+        self._ensure_dir(target_dir)
+        url = self._url(target_dir, local.name)
         size = local.stat().st_size
         size_mb = size / 1024 / 1024
         self.log.info("WebDAV: direct PUT %s (%.2f MB) → %s",
@@ -146,7 +154,8 @@ class WebDAVStorage(BaseStorage):
         """
         from ..progress import Progress
 
-        self._ensure_dir(self.cfg.remote_path)
+        target_dir = self._target_dir()
+        self._ensure_dir(target_dir)
 
         size = local.stat().st_size
         chunk_size = self.cfg.chunked_chunk_size_mb * 1024 * 1024
@@ -157,7 +166,7 @@ class WebDAVStorage(BaseStorage):
         upload_dir = f"{self._uploads_base.rstrip('/')}/{txid}/"
 
         # Final destination URL (relative to base files/<user>/)
-        final_url = self._url(self.cfg.remote_path, local.name)
+        final_url = self._url(target_dir, local.name)
 
         # Phase 1: create the upload folder (MKCOL)
         self.log.debug("WebDAV chunked: MKCOL %s", upload_dir)
@@ -306,8 +315,62 @@ class WebDAVStorage(BaseStorage):
             })
         return out
 
+    def list_run_dirs(self) -> list[str]:
+        """List run-subdirectories under remote_path. PROPFIND Depth: 1
+        gives us the immediate children — filter to those that are collections.
+        """
+        url = self._url(self.cfg.remote_path) + "/"
+        body = (
+            '<?xml version="1.0"?>'
+            '<d:propfind xmlns:d="DAV:"><d:prop>'
+            '<d:resourcetype/><d:displayname/>'
+            '</d:prop></d:propfind>'
+        )
+        r = self._session.request(
+            "PROPFIND", url, data=body,
+            headers={"Depth": "1", "Content-Type": "application/xml"},
+            timeout=self.cfg.timeout,
+            verify=self.cfg.verify_tls,
+        )
+        if r.status_code not in (207, 200):
+            raise RuntimeError(f"PROPFIND {url} → {r.status_code}")
+
+        ns = {"d": "DAV:"}
+        root = ET.fromstring(r.text)
+        dirs: list[str] = []
+        for resp in root.findall("d:response", ns):
+            href = resp.find("d:href", ns)
+            if href is None or href.text is None:
+                continue
+            stripped = href.text.rstrip("/")
+            name = unquote(stripped.rsplit("/", 1)[-1])
+            if not name or stripped.endswith(self.cfg.remote_path.strip("/")):
+                continue
+            # Check if it's a collection (directory)
+            rt = resp.find(".//d:resourcetype", ns)
+            if rt is not None and rt.find("d:collection", ns) is not None:
+                dirs.append(name)
+        return sorted(dirs)
+
+    def delete_run_dir(self, dir_name: str, log: logging.Logger) -> None:
+        """Delete an entire directory with one DELETE request — Nextcloud
+        deletes the folder and all its contents.
+        """
+        url = self._url(self.cfg.remote_path, dir_name) + "/"
+        r = self._session.delete(url,
+                            timeout=self.cfg.timeout,
+                            verify=self.cfg.verify_tls)
+        if r.status_code not in (200, 204, 404):
+            raise RuntimeError(f"DELETE {url} → {r.status_code}")
+        log.debug("WebDAV: deleted directory %s", dir_name)
+
     def delete(self, file_id: str) -> None:
-        url = self._url(self.cfg.remote_path, file_id)
+        # file_id may already contain run-subdir/path, or be just a basename;
+        # if it has '/', treat as relative-to-remote_path
+        if "/" in file_id:
+            url = self._url(self.cfg.remote_path, file_id)
+        else:
+            url = self._url(self._target_dir(), file_id)
         r = self._session.delete(url,
                             timeout=self.cfg.timeout,
                             verify=self.cfg.verify_tls)
@@ -325,7 +388,7 @@ class WebDAVStorage(BaseStorage):
 
     def verify(self, local: Path, file_id: str, method: str,
                log: logging.Logger) -> bool:
-        url = self._url(self.cfg.remote_path, file_id)
+        url = self._url(self._target_dir(), file_id)
         r = self._session.head(url, timeout=self.cfg.timeout,
                           verify=self.cfg.verify_tls)
         if r.status_code != 200:

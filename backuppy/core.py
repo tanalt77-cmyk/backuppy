@@ -151,6 +151,18 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
     remote_dests = build_destinations(cfg, log)
     local = LocalStorage(cfg.local, log) if cfg.local.enabled else None
 
+    # If group_by_run is enabled, every destination is told to use a
+    # per-run subdirectory named YYYYMMDD-HHMMSS. All artifacts of this
+    # run land inside one subfolder, rotation runs per-directory.
+    run_subdir: str | None = None
+    if cfg.group_by_run:
+        run_subdir = started.strftime("%Y%m%d-%H%M%S")
+        log.info("group_by_run: enabled — using subdir '%s'", run_subdir)
+        if local:
+            local.set_run_subdir(run_subdir)
+        for d in remote_dests:
+            d.set_run_subdir(run_subdir)
+
     if dry_run:
         log.info("[DRY-RUN] no changes will be made")
         for t in triggers:
@@ -266,9 +278,22 @@ def _upload_with_verify(storage: BaseStorage, local_dest: Path,
 
 
 def _rotate_all(cfg: Config, sources, local, remotes, log: logging.Logger) -> None:
-    """Rotate by source prefixes (only for sources that pack to one archive).
-    For other sources, we can't reliably group across runs — no rotation.
+    """Rotate backups. Two modes:
+
+    1) group_by_run = True: rotate by run-directory.
+       keep_last keeps that many run-subdirs.
+    2) group_by_run = False (default): rotate by filename prefix (per-file).
     """
+    if cfg.group_by_run:
+        # Per-directory rotation
+        if local:
+            local.rotate_run_dirs(cfg.local.keep_last, log)
+        for s in remotes:
+            keep = keep_last_for(s, cfg)
+            s.rotate_run_dirs(keep, log)
+        return
+
+    # Per-file rotation (original behavior)
     prefixes: list[str] = []
     for s in sources:
         prefixes.extend(s.prefixes(cfg.name))

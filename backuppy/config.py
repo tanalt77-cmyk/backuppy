@@ -238,6 +238,14 @@ class LogCfg:
 class Config:
     name: str = "backup"
 
+    # When True, every backup run creates a subdirectory named
+    # YYYYMMDD-HHMMSS inside each destination (local + remote) and stores
+    # all artifacts of that run inside it. Rotation is then per-directory:
+    # keep_last keeps that many run-folders.
+    # When False (default), files go directly into remote_path with their
+    # individual names, and rotation is per-file by filename prefix.
+    group_by_run: bool = False
+
     # Triggers and sources are lists of raw dicts.
     # core.py iterates them and instantiates the right class for each.
     triggers: list[dict] = field(default_factory=list)
@@ -346,6 +354,7 @@ def _build_config(raw: dict[str, Any]) -> Config:
 
     return Config(
         name=raw.get("name", "backup"),
+        group_by_run=bool(raw.get("group_by_run", False)),
         triggers=triggers,
         sources=sources,
         compression=CompressionCfg(**raw.get("compression", {})),

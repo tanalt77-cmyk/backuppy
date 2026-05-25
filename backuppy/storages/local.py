@@ -20,9 +20,18 @@ class LocalStorage(BaseStorage):
         self.dest_dir = Path(cfg.path)
         self.dest_dir.mkdir(parents=True, exist_ok=True)
 
+    def _target_dir(self) -> Path:
+        """Where files actually go — base dir plus optional run-subdir."""
+        if self._run_subdir:
+            sub = self.dest_dir / self._run_subdir
+            sub.mkdir(parents=True, exist_ok=True)
+            return sub
+        return self.dest_dir
+
     def store(self, src: Path) -> Path:
-        """Move src into the local backup directory."""
-        dest = self.dest_dir / src.name
+        """Move src into the local backup directory (under run-subdir if active)."""
+        target = self._target_dir()
+        dest = target / src.name
         shutil.move(str(src), dest)
         self.log.info("Local: stored %s", dest)
         return dest
@@ -32,19 +41,34 @@ class LocalStorage(BaseStorage):
         return str(local)
 
     def list_files(self) -> list[dict]:
+        """List all files under dest_dir, including subdirs. Names include
+        the relative path so per-dir rotation logic can group them."""
         out = []
         if not self.dest_dir.exists():
             return out
-        for p in self.dest_dir.iterdir():
+        for p in self.dest_dir.rglob("*"):
             if p.is_file():
                 st = p.stat()
+                rel = p.relative_to(self.dest_dir)
                 out.append({
-                    "name": p.name,
+                    "name": str(rel).replace("\\", "/"),
                     "id": str(p),
                     "size": st.st_size,
                     "modified": dt.datetime.fromtimestamp(st.st_mtime),
                 })
         return out
+
+    def list_run_dirs(self) -> list[str]:
+        """Run subdirectories at top level of dest_dir."""
+        if not self.dest_dir.exists():
+            return []
+        return sorted(p.name for p in self.dest_dir.iterdir() if p.is_dir())
+
+    def delete_run_dir(self, dir_name: str, log: logging.Logger) -> None:
+        target = self.dest_dir / dir_name
+        if target.is_dir():
+            shutil.rmtree(target)
+            log.debug("Local: removed directory %s", target)
 
     def delete(self, file_id: str) -> None:
         p = Path(file_id)
