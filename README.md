@@ -28,6 +28,10 @@ A source doesn't know who put the files in its path. This makes everything compo
 ## Quick install
 
 ```bash
+# Install curl first if needed (on minimal Debian/Ubuntu)
+apt install -y curl
+
+# One-line installer
 curl -fsSL https://raw.githubusercontent.com/tanalt77-cmyk/backuppy/main/install.sh | bash
 ```
 
@@ -47,13 +51,50 @@ backuppy run pixo                          # run /etc/backuppy/pixo.yml
 backuppy verify pixo                       # preflight check
 backuppy run pixo files-www mssql-prod     # run multiple models
 backuppy run --all                         # run everything in /etc/backuppy/
-backuppy models                            # list all models
+backuppy models                            # list discovered models
+backuppy list pixo                         # show stored backups for a model
 
 # By explicit path (works anywhere):
 backuppy run -c /path/to/some.yml --dry-run
+```
 
-# List discovered models
-backuppy models                            # what's in /etc/backuppy/
+## Creating models
+
+The fastest way to start: generate a model from a template.
+
+```bash
+backuppy new --list                       # see available templates
+backuppy new pixo --template mssql-full   # create /etc/backuppy/pixo.yml
+backuppy new app-files --template files
+backuppy new pg-prod --template postgres
+```
+
+Generated files include comments explaining every field. Open and edit:
+
+```bash
+nano /etc/backuppy/pixo.yml      # fill in TODO placeholders
+chmod 600 /etc/backuppy/pixo.yml # protect credentials
+```
+
+Available templates:
+
+| Template          | What it generates                                       |
+|-------------------|---------------------------------------------------------|
+| `files`           | Filesystem archive (paths + excludes)                   |
+| `postgres`        | PostgreSQL via pg_dump                                  |
+| `mysql`           | MySQL/MariaDB via mysqldump                             |
+| `mssql-full`      | Windows SQL Server FULL backup                          |
+| `mssql-diff`      | Windows SQL Server DIFFERENTIAL backup                  |
+| `mssql-log`       | Windows SQL Server TRANSACTION LOG backup               |
+| `shared-storage`  | Shared destination credentials (for use with `extends:`)|
+
+The template is auto-detected from the name if `--template` is omitted:
+`backuppy new mssql-prod` → uses `mssql-full` template.
+
+Generated files default to `/etc/backuppy/`. Override with `--dir`:
+
+```bash
+backuppy new pixo --template mssql-full --dir /tmp/configs/
 ```
 
 ## Examples
@@ -127,6 +168,57 @@ webdav:
   keep_last: 30
 ```
 
+### MSSQL with single local copy (static names + timestamped upload)
+
+By default, every MSSQL backup creates a unique file:
+`work-full-20260525-021713.bak`. These accumulate on the Windows side and
+need cleanup (`delete_after_pickup: true` or manual rotation on Windows).
+
+Alternative: tell SQL Server to write to a *static* filename like
+`work-full.bak` — each new backup overwrites the previous local copy.
+backuppy then renames with a timestamp when uploading, so cloud history
+is still complete.
+
+```yaml
+name: pixo
+
+triggers:
+  - type: mssql
+    host: "10.0.0.5"
+    username: backup_user
+    password: SECRET
+    output_dir_windows: "D:\\Backups\\backuppy"
+    databases:
+      - { name: work, backup_type: FULL }
+      - { name: avic, backup_type: FULL }
+    compression: true
+    static_local_name: true              # SQL writes work-full.bak (no timestamp)
+
+sources:
+  - type: files
+    paths: ["/mnt/win-server1/backuppy/*.bak"]
+    rename_with_timestamp: true          # adds timestamp to uploaded names
+    delete_after_pickup: false           # not needed — files overwrite themselves
+
+local:
+  enabled: false                         # SQL Server folder IS the local copy
+
+webdav:
+  enabled: true
+  base_url: "https://nextcloud.example.com/remote.php/dav/files/USER/"
+  remote_path: "Backups/pixo/full"
+  username: USER
+  password: APP-PASSWORD
+  keep_last: 7                           # rotated normally by prefix
+```
+
+Result:
+- **On Windows**: only `work-full.bak`, `avic-full.bak` — one fresh copy per DB.
+- **In Nextcloud**: `work-full-20260525-021713.bak` history, last 7 kept.
+
+Pair with `mssql-diff` (DIFFERENTIAL) and `mssql-log` (transaction log)
+models for full point-in-time recovery.
+
 ### Custom hook trigger
 
 Any shell command can be a trigger. Useful for rsync, custom scripts, anything.
@@ -141,17 +233,6 @@ sources:
     paths: ["/tmp/staging/*"]
     delete_after_pickup: true
 ```
-
-## Creating models with templates
-
-```bash
-backuppy new --list                       # see available templates
-backuppy new my-files --template files
-backuppy new pg-prod --template postgres
-backuppy new app-mssql --template mssql-full
-```
-
-Templates: `files`, `postgres`, `mysql`, `mssql-full`, `mssql-diff`, `shared-storage`.
 
 ## Multiple models
 

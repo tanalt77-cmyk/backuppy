@@ -26,6 +26,13 @@ class FilesSource:
         # If archive_name is set, all matched files are packed into one tar.
         # Otherwise, each matched file is copied individually.
         self.archive_name: str = cfg.get("archive_name", "") or ""
+        # If True, insert a timestamp into the filename when picking up so
+        # the uploaded copy is uniquely named even if the source file has
+        # a static name. Use with mssql trigger's static_local_name=true.
+        # Example: 'work-full.bak' → 'work-full-20260525-143012.bak'
+        self.rename_with_timestamp: bool = bool(
+            cfg.get("rename_with_timestamp", False)
+        )
         self.log = log
         # Remember which files were picked up in the LAST pickup() call,
         # so prefixes() can derive rotation prefixes from real filenames.
@@ -100,7 +107,14 @@ class FilesSource:
             # Copy each individually
             produced = []
             for f in matched:
-                dest = work_dir / f.name
+                if self.rename_with_timestamp:
+                    # 'work-full.bak' → 'work-full-20260525-143012.bak'
+                    stem = f.stem
+                    suffix = f.suffix
+                    new_name = f"{stem}-{timestamp}{suffix}"
+                    dest = work_dir / new_name
+                else:
+                    dest = work_dir / f.name
                 # Handle name collisions (two files with same name from different dirs)
                 if dest.exists():
                     base = dest.stem

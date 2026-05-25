@@ -54,6 +54,11 @@ class MSSQLTrigger(BaseTrigger):
         self.trust_server_certificate: bool = bool(
             cfg.get("trust_server_certificate", True)
         )
+        # When True, SQL Server writes to a static filename like
+        # 'work-full.bak' (no timestamp). Each backup OVERWRITES the
+        # previous one on Windows — keeps only ONE local copy per DB.
+        # backuppy then renames to a timestamped name when uploading.
+        self.static_local_name: bool = bool(cfg.get("static_local_name", False))
 
     def _connect(self):
         try:
@@ -114,7 +119,13 @@ class MSSQLTrigger(BaseTrigger):
             suffix = "full"
             ext = "bak"
 
-        filename = f"{name}-{suffix}-{timestamp}.{ext}"
+        # Choose filename strategy:
+        #   static_local_name=true → 'work-full.bak' (overwrites each run)
+        #   default                → 'work-full-20260525-021713.bak' (unique)
+        if self.static_local_name:
+            filename = f"{name}-{suffix}.{ext}"
+        else:
+            filename = f"{name}-{suffix}-{timestamp}.{ext}"
         remote = self._remote_path(filename)
 
         opts = []
