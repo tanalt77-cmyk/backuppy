@@ -98,21 +98,50 @@ def run_hooks(stage: str, commands: list[str], log: logging.Logger) -> None:
 # ============================================================================
 
 def build_destinations(cfg: Config, log: logging.Logger) -> list[BaseStorage]:
-    """Build ALL enabled destinations (excluding local — handled separately)."""
+    """Build ALL enabled destinations (excluding local — handled separately).
+
+    Every destination's path/prefix is suffixed with /<model_name>/ — this
+    keeps files of different models separated in the same root storage.
+
+    Each cfg is shallow-copied so we don't mutate the user's parsed config.
+    """
+    import copy
     out: list[BaseStorage] = []
+
+    def _with_model(path_field: str, cfg_obj):
+        """Return a shallow copy of cfg_obj with path_field suffixed by /<name>"""
+        c = copy.copy(cfg_obj)
+        original = getattr(c, path_field, "")
+        # Normalize: strip trailing slash, append model name
+        sep = "/"
+        new_value = original.rstrip("/").rstrip("\\") + sep + cfg.name
+        setattr(c, path_field, new_value)
+        return c
+
     if cfg.webdav.enabled:
-        out.append(WebDAVStorage(cfg.webdav, log))
+        out.append(WebDAVStorage(_with_model("remote_path", cfg.webdav), log))
     if cfg.s3.enabled:
-        out.append(S3Storage(cfg.s3, log))
+        out.append(S3Storage(_with_model("prefix", cfg.s3), log))
     if cfg.sftp.enabled:
-        out.append(SFTPStorage(cfg.sftp, log))
+        out.append(SFTPStorage(_with_model("remote_path", cfg.sftp), log))
     if cfg.dropbox.enabled:
-        out.append(DropboxStorage(cfg.dropbox, log))
+        out.append(DropboxStorage(_with_model("remote_path", cfg.dropbox), log))
     if cfg.gcs.enabled:
-        out.append(GCSStorage(cfg.gcs, log))
+        out.append(GCSStorage(_with_model("prefix", cfg.gcs), log))
     if cfg.azure.enabled:
-        out.append(AzureBlobStorage(cfg.azure, log))
+        out.append(AzureBlobStorage(_with_model("prefix", cfg.azure), log))
     return out
+
+
+def build_local(cfg: Config, log: logging.Logger):
+    """Build LocalStorage with model name appended to path."""
+    if not cfg.local.enabled:
+        return None
+    import copy
+    from pathlib import Path
+    local_cfg = copy.copy(cfg.local)
+    local_cfg.path = str(Path(local_cfg.path) / cfg.name)
+    return LocalStorage(local_cfg, log)
 
 
 def keep_last_for(storage: BaseStorage, cfg: Config) -> int:
@@ -149,7 +178,7 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
     triggers = [build_trigger(t, log) for t in cfg.triggers]
     sources = [build_source(s, log) for s in cfg.sources]
     remote_dests = build_destinations(cfg, log)
-    local = LocalStorage(cfg.local, log) if cfg.local.enabled else None
+    local = build_local(cfg, log)
 
     # If group_by_run is enabled, every destination is told to use a
     # per-run subdirectory named YYYYMMDD-HHMMSS. All artifacts of this
@@ -315,7 +344,7 @@ def _rotate_all(cfg: Config, sources, local, remotes, log: logging.Logger) -> No
 def cmd_list(cfg: Config, log: logging.Logger) -> int:
     if cfg.local.enabled:
         log.info("Local backups in %s:", cfg.local.path)
-        local = LocalStorage(cfg.local, log)
+        local = build_local(cfg, log)
         for f in sorted(local.list_files(), key=lambda x: x["name"]):
             mb = f["size"] / 1024 / 1024
             print(f"  {f['name']}  ({mb:.2f} MB)")
@@ -360,7 +389,7 @@ def cmd_verify(cfg: Config, log: logging.Logger) -> int:
 
     # Local
     if cfg.local.enabled:
-        LocalStorage(cfg.local, log).check_access()
+        build_local(cfg, log).check_access()
 
     # Destinations
     for d in build_destinations(cfg, log):

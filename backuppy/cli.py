@@ -182,6 +182,38 @@ def main() -> int:
     p_new.add_argument("--list", action="store_true",
                        help="List available templates and exit.")
 
+    # ---- notify ----
+    p_notify = sub.add_parser("notify",
+                              help="Add or test notification channels")
+    notify_sub = p_notify.add_subparsers(dest="notify_action",
+                                         metavar="ACTION", required=True)
+    p_notify_add = notify_sub.add_parser(
+        "add", help="Interactive wizard to add an email/telegram block")
+    p_notify_add.add_argument("model", help="Model name or path to YAML")
+    p_notify_add.add_argument("--channel",
+                              choices=["email", "telegram"],
+                              help="Skip the channel prompt")
+
+    p_notify_test = notify_sub.add_parser(
+        "test", help="Send a one-shot test notification via configured channels")
+    p_notify_test.add_argument("model", help="Model name or path to YAML")
+    p_notify_test.add_argument("--channel",
+                               choices=["email", "telegram"],
+                               help="Only test this specific channel")
+
+    # ---- migrate ----
+    p_migrate = sub.add_parser(
+        "migrate",
+        help="Auto-update *_path fields for v3.10.0 model-name prefix change")
+    p_migrate.add_argument("targets", nargs="*",
+                           help="Model names or paths to migrate")
+    p_migrate.add_argument("--all", action="store_true", dest="all_flag",
+                           help=f"Migrate every model in {DEFAULT_CONFIGS_DIR}/")
+    p_migrate.add_argument("--dry-run", action="store_true",
+                           help="Show what would change without writing")
+    p_migrate.add_argument("--yes", "-y", action="store_true",
+                           help="Skip confirmation prompts")
+
     args = ap.parse_args()
 
     # Apply global --no-progress flag
@@ -198,6 +230,18 @@ def main() -> int:
             return 2
         return cmd_new(args.name, args.template, Path(args.dir).expanduser(),
                        args.force)
+
+    if args.command == "notify":
+        from .cmd_notify import cmd_notify_add, cmd_notify_test
+        if args.notify_action == "add":
+            return cmd_notify_add(args.model, args.channel)
+        if args.notify_action == "test":
+            return cmd_notify_test(args.model, args.channel)
+        return 2
+
+    if args.command == "migrate":
+        from .cmd_migrate import cmd_migrate
+        return cmd_migrate(args.targets, args.dry_run, args.all_flag, args.yes)
 
     # For models without any target → show what's available in DEFAULT_CONFIGS_DIR
     if args.command == "models" and not (args.names or args.config or
