@@ -41,32 +41,76 @@ class FilesSource:
         if not self.paths:
             raise ValueError("FilesSource: 'paths' is required and non-empty")
 
-    def _expand(self) -> list[Path]:
-        """Resolve paths and glob patterns to a concrete list of files."""
-        out: list[Path] = []
+    def _expand(self) -> list[tuple[Path, Path]]:
+        """Resolve paths and glob patterns to a list of (file, root) tuples.
+
+        The 'root' is the directory each file's path is computed relative to
+        when packed into a tar — so the archive preserves folder structure.
+
+        For 'paths' entries:
+          - literal directory ('/mnt/alko/GURT_New')      → root = parent
+            → files appear in tar under 'GURT_New/...'
+          - literal file ('/etc/foo.conf')                → root = parent
+            → file appears in tar as 'foo.conf'
+          - glob pattern ('/mnt/alko/GURT_New/**/*')      → root = part before
+            first wildcard ('/mnt/alko/GURT_New')
+            → files appear as 'subdir/file.dbf' (no GURT_New prefix)
+        """
+        out: list[tuple[Path, Path]] = []
         for pat in self.paths:
-            # glob.glob handles both literal paths and patterns; if literal
-            # is a directory, we walk it.
+            root = self._glob_root(pat)
             matched = glob.glob(pat, recursive=True)
             for m in matched:
                 p = Path(m)
                 if p.is_file():
                     if not self._is_excluded(str(p)):
-                        out.append(p)
+                        out.append((p, root))
                 elif p.is_dir():
                     # Walk directory and pick up all files
                     for f in p.rglob("*"):
                         if f.is_file() and not self._is_excluded(str(f)):
-                            out.append(f)
-        # Deduplicate while preserving order
+                            out.append((f, root))
+        # Deduplicate while preserving order (by resolved file path)
         seen: set[Path] = set()
-        unique: list[Path] = []
-        for p in out:
+        unique: list[tuple[Path, Path]] = []
+        for p, root in out:
             r = p.resolve()
             if r not in seen:
                 seen.add(r)
-                unique.append(p)
+                unique.append((p, root))
         return unique
+
+    @staticmethod
+    def _glob_root(pattern: str) -> Path:
+        """Return the deepest directory that is NOT part of a glob pattern.
+
+        For literal paths (file or dir) → returns the path's parent, so that
+        the path itself becomes the first segment in the archive.
+        For globs → returns the directory up to the first wildcard character.
+
+        Examples:
+          /mnt/alko/GURT_New              → /mnt/alko       (literal dir)
+          /mnt/alko/GURT_New/**/*         → /mnt/alko/GURT_New
+          /mnt/alko/*                     → /mnt/alko
+          /etc/myfile.conf                → /etc
+        """
+        # Find first glob metacharacter
+        meta_idx = -1
+        for i, ch in enumerate(pattern):
+            if ch in "*?[":
+                meta_idx = i
+                break
+        if meta_idx == -1:
+            # No glob — root is the parent of the literal path
+            return Path(pattern).parent
+        # Glob present — root is the deepest path component before the wildcard
+        prefix = pattern[:meta_idx]
+        # If prefix ends with '/', drop it; then take dirname
+        # E.g. '/mnt/alko/' → '/mnt/alko'; '/mnt/alko/G' → '/mnt/alko'
+        if prefix.endswith("/"):
+            prefix = prefix.rstrip("/")
+            return Path(prefix)
+        return Path(prefix).parent
 
     def _is_excluded(self, path: str) -> bool:
         for pat in self.excludes:
@@ -87,26 +131,29 @@ class FilesSource:
             return []
 
         timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-        total_size = sum(f.stat().st_size for f in matched)
+        total_size = sum(f.stat().st_size for f, _ in matched)
         self.log.info("FilesSource: %d file(s) matched, %.2f MB total",
                       len(matched), total_size / 1024 / 1024)
 
         if self.archive_name:
-            # Pack into a single tar
+            # Pack into a single tar — preserve folder structure under each path's root
             tar_name = f"{model_name}-{self.archive_name}-{timestamp}.tar"
             tar_path = work_dir / tar_name
             self.log.info("  → packing into %s", tar_name)
             with tarfile.open(tar_path, "w") as tar:
-                for f in matched:
-                    # Preserve a reasonable arcname; use just the basename if
-                    # the file came from a glob with mixed parents.
-                    arcname = f.name
+                for f, root in matched:
+                    try:
+                        rel = f.relative_to(root)
+                        arcname = str(rel)
+                    except ValueError:
+                        # Path is not under root (shouldn't happen but be safe)
+                        arcname = f.name
                     tar.add(f, arcname=arcname)
             produced = [tar_path]
         else:
             # Copy each individually
             produced = []
-            for f in matched:
+            for f, _root in matched:
                 if self.rename_with_timestamp:
                     # 'work-full.bak' → 'work-full-20260525-143012.bak'
                     stem = f.stem
@@ -128,7 +175,7 @@ class FilesSource:
 
         # Delete originals if requested
         if self.delete_after_pickup:
-            for f in matched:
+            for f, _ in matched:
                 try:
                     f.unlink()
                 except OSError as e:
