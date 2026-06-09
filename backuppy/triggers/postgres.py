@@ -10,6 +10,38 @@ from pathlib import Path
 from .base import BaseTrigger
 
 
+def _run(cmd: list[str], env: dict, timeout: int | None = None) -> tuple[int, str, str]:
+    """Run a subprocess, return (returncode, stdout, stderr) as strings.
+
+    Captures bytes and decodes with errors='replace' so a non-UTF-8
+    response (e.g. WIN1251 from PostgreSQL on Windows) doesn't crash
+    the trigger. Tries common Windows encoding as fallback for stderr
+    which often contains localized error messages.
+    """
+    res = subprocess.run(cmd, capture_output=True, env=env, timeout=timeout)
+    stdout = _decode(res.stdout)
+    stderr = _decode(res.stderr)
+    return res.returncode, stdout, stderr
+
+
+def _decode(data: bytes) -> str:
+    """Decode bytes to str, trying UTF-8 first then Windows-1251."""
+    if not data:
+        return ""
+    # Try UTF-8 (most modern systems)
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    # Try Windows-1251 (cyrillic-speaking Windows installs)
+    try:
+        return data.decode("cp1251")
+    except UnicodeDecodeError:
+        pass
+    # Last resort: replace bad bytes
+    return data.decode("utf-8", errors="replace")
+
+
 class PostgresTrigger(BaseTrigger):
     type = "postgres"
 
@@ -30,6 +62,9 @@ class PostgresTrigger(BaseTrigger):
         env = dict(os.environ)
         if self.password:
             env["PGPASSWORD"] = self.password
+        # Force psql to emit messages in UTF-8 when possible.
+        # PostgreSQL respects PGCLIENTENCODING for the client side.
+        env.setdefault("PGCLIENTENCODING", "UTF8")
         return env
 
     def _common_args(self) -> list[str]:
@@ -58,10 +93,9 @@ class PostgresTrigger(BaseTrigger):
             cmd = [self.pg_dumpall_path, *self._common_args(),
                    "-f", str(out), *self.extra_args]
             self.log.info("Postgres: pg_dumpall → %s", out.name)
-            res = subprocess.run(cmd, capture_output=True, text=True,
-                                 env=self._env())
-            if res.returncode != 0:
-                raise RuntimeError(f"pg_dumpall failed: {res.stderr.strip()}")
+            rc, _stdout, stderr = _run(cmd, self._env())
+            if rc != 0:
+                raise RuntimeError(f"pg_dumpall failed: {stderr.strip()}")
             produced.append(str(out))
         else:
             fmt_flag, ext = self._format_arg()
@@ -71,10 +105,9 @@ class PostgresTrigger(BaseTrigger):
                        "-F", fmt_flag, "-d", db,
                        "-f", str(out), *self.extra_args]
                 self.log.info("Postgres: pg_dump %s → %s", db, out.name)
-                res = subprocess.run(cmd, capture_output=True, text=True,
-                                     env=self._env())
-                if res.returncode != 0:
-                    raise RuntimeError(f"pg_dump failed: {res.stderr.strip()}")
+                rc, _stdout, stderr = _run(cmd, self._env())
+                if rc != 0:
+                    raise RuntimeError(f"pg_dump failed: {stderr.strip()}")
                 produced.append(str(out))
         return produced
 
@@ -82,10 +115,9 @@ class PostgresTrigger(BaseTrigger):
         cmd = ["psql", *self._common_args(), "-d", "postgres",
                "-tAc", "SELECT version();"]
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True,
-                                 env=self._env(), timeout=15)
+            rc, stdout, stderr = _run(cmd, self._env(), timeout=15)
         except FileNotFoundError:
             raise RuntimeError("psql not found. apt install postgresql-client")
-        if res.returncode != 0:
-            raise RuntimeError(f"Postgres connection failed: {res.stderr.strip()}")
-        self.log.info("Postgres OK: %s", res.stdout.strip().split("\n")[0])
+        if rc != 0:
+            raise RuntimeError(f"Postgres connection failed: {stderr.strip()}")
+        self.log.info("Postgres OK: %s", stdout.strip().split("\n")[0])
