@@ -246,6 +246,12 @@ class Config:
     # individual names, and rotation is per-file by filename prefix.
     group_by_run: bool = False
 
+    # Where to put the temporary working directory during a run.
+    # Empty string = use Python's tempfile default (typically /tmp).
+    # Set to a path on a large disk if backups exceed available space
+    # in /tmp (especially if /tmp is on tmpfs / in RAM).
+    tmp_dir: str = ""
+
     # Triggers and sources are lists of raw dicts.
     # core.py iterates them and instantiates the right class for each.
     triggers: list[dict] = field(default_factory=list)
@@ -355,6 +361,7 @@ def _build_config(raw: dict[str, Any]) -> Config:
     return Config(
         name=raw.get("name", "backup"),
         group_by_run=bool(raw.get("group_by_run", False)),
+        tmp_dir=raw.get("tmp_dir", "") or "",
         triggers=triggers,
         sources=sources,
         compression=CompressionCfg(**raw.get("compression", {})),

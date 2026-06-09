@@ -213,8 +213,16 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
         log.error("Aborting: %s", e)
         return 1
 
+    # Resolve where temporary files should go. If tmp_dir is configured,
+    # ensure it exists; otherwise Python's default (TMPDIR or /tmp) is used.
+    tmp_parent: str | None = None
+    if cfg.tmp_dir:
+        Path(cfg.tmp_dir).mkdir(parents=True, exist_ok=True)
+        tmp_parent = cfg.tmp_dir
+        log.debug("Using tmp_dir: %s", tmp_parent)
+
     try:
-        with tempfile.TemporaryDirectory(prefix="backuppy-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="backuppy-", dir=tmp_parent) as tmp:
             work = Path(tmp)
 
             # 1. Run triggers
