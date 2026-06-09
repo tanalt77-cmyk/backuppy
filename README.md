@@ -311,54 +311,66 @@ webdav:
   chunked: false                              # small files, direct PUT
 ```
 
-### MSSQL with single local copy (static names + timestamped upload)
+### Static local names (one fresh copy per DB)
 
-By default, every MSSQL backup creates a unique file like
-`AppDB-full-20260525-021713.bak`. These accumulate on the Windows side
-and need cleanup (`delete_after_pickup: true` or manual rotation).
+Every database trigger supports `static_local_name: true`. When set, the
+trigger writes its output to a *fixed* filename like `appdb-full.dump`
+instead of `appdb-full-20260609-130000.dump`. Each backup OVERWRITES the
+previous one — the staging directory keeps only one fresh copy per DB,
+no accumulation.
 
-Alternative: tell SQL Server to write to a *static* filename like
-`AppDB-full.bak` — each new backup overwrites the previous local copy.
-backuppy then renames with a timestamp when uploading, so cloud history
-is still complete.
+Combine with `sources.rename_with_timestamp: true` to add the timestamp
+on upload — cloud history is still complete.
+
+Supported triggers: `mssql`, `postgres`, `mysql`, `mongodb`, `redis`,
+`sqlite`. File naming when enabled:
+
+| Trigger    | File name                       |
+|------------|---------------------------------|
+| `mssql`    | `<db>-full.bak` / `-diff.bak` / `-log.trn` |
+| `postgres` | `<db>-full.dump` (or `.sql`, `.tar` depending on format) |
+| `mysql`    | `<db>-full.sql` (or `all-databases-full.sql`) |
+| `mongodb`  | `<db>-full.tar` (or `alldbs-full.tar`) |
+| `redis`    | `redis-full.rdb`                |
+| `sqlite`   | `<dbname>-full.sqlite`          |
+
+Example combining all the pieces:
 
 ```yaml
-name: myserver
+name: appdb
+group_by_run: true
 
 triggers:
-  - type: mssql
+  - type: postgres
     host: "10.0.0.5"
     username: backup_user
     password: SECRET
-    output_dir_windows: "D:\\Backups\\backuppy"
-    databases:
-      - { name: AppDB, backup_type: FULL }
-      - { name: OtherDB, backup_type: FULL }
-    compression: true
-    static_local_name: true              # SQL writes AppDB-full.bak (no timestamp)
+    output_dir: /tmp/pg-staging
+    databases: [appdb, otherdb]
+    static_local_name: true              # → appdb-full.dump, otherdb-full.dump
 
 sources:
   - type: files
-    paths: ["/mnt/win-server1/backuppy/*.bak"]
-    rename_with_timestamp: true          # adds timestamp to uploaded names
-    delete_after_pickup: false           # not needed — files overwrite themselves
+    paths: ["/tmp/pg-staging/*.dump"]
+    rename_with_timestamp: true          # → appdb-full-20260609-130000.dump on upload
+    delete_after_pickup: false           # keep latest dump locally for quick restore
 
 local:
-  enabled: false                         # SQL Server folder IS the local copy
+  enabled: false                         # staging dir is the local copy
 
 webdav:
   enabled: true
-  base_url: "https://nextcloud.example.com/remote.php/dav/files/USER/"
+  base_url: "..."
   remote_path: "Backups"
   username: USER
   password: APP-PASSWORD
-  keep_last: 7
+  keep_last: 30
 ```
 
 Result:
-- **On Windows**: only `AppDB-full.bak`, `OtherDB-full.bak` — one fresh
-  copy per DB, always up to date.
-- **In Nextcloud**: `AppDB-full-20260525-021713.bak` history, last 7 kept.
+- **On disk**: only `appdb-full.dump`, `otherdb-full.dump` — always fresh.
+- **In Nextcloud** (with group_by_run): `appdb/20260609-130000/appdb-full.dump`,
+  next day a new folder, last 30 kept.
 
 ### Group by run (one folder per backup run)
 
@@ -469,12 +481,47 @@ Backuppy comes with these built-in triggers:
 | Trigger     | Produces                          | Config fields (key ones)                    |
 |-------------|-----------------------------------|---------------------------------------------|
 | `mssql`     | `.bak` / `.trn` via BACKUP        | `host`, `username`, `password`, `output_dir_windows`, `databases`, `static_local_name`, `compression`, `checksum`, `copy_only` |
-| `postgres`  | `.dump` / `.sql` via pg_dump      | `host`, `username`, `databases`, `format`   |
-| `mysql`     | `.sql.gz` via mysqldump           | `host`, `username`, `databases`, `single_transaction` |
-| `mongodb`   | mongodump output                  | `uri`, `databases`, `gzip`, `oplog`         |
-| `redis`     | `.rdb` via BGSAVE                 | `host`, `port`, `password`, `rdb_path`      |
-| `sqlite`    | `.db` via online backup           | `databases` (list of paths)                 |
+| `postgres`  | `.dump` / `.sql` via pg_dump      | `host`, `username`, `databases`, `format`, `static_local_name`, `pg_dump_path`, `pg_dumpall_path` |
+| `mysql`     | `.sql` via mysqldump              | `host`, `username`, `databases`, `single_transaction`, `static_local_name` |
+| `mongodb`   | `.tar` via mongodump              | `uri`, `databases`, `gzip`, `oplog`, `static_local_name` |
+| `redis`     | `.rdb` via BGSAVE                 | `host`, `port`, `password`, `rdb_path`, `static_local_name` |
+| `sqlite`    | `.sqlite` via online backup       | `databases` (list of paths), `static_local_name` |
 | `hook`      | Whatever your script does         | `command`                                   |
+
+### PostgreSQL client version
+
+`pg_dump` requires its version to be **equal to or newer than** the
+PostgreSQL server version. Debian 12's default repo ships PostgreSQL
+client 15, which fails against server 16+ with:
+
+```
+pg_dumpall: error: aborting because of server version mismatch
+```
+
+To install a newer client (e.g. for PostgreSQL 17 server):
+
+```bash
+apt install -y curl ca-certificates
+install -d /usr/share/postgresql-common/pgdg
+curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail \
+    https://www.postgresql.org/media/keys/ACCC4CF8.asc
+. /etc/os-release
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $VERSION_CODENAME-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list
+apt update
+apt install -y postgresql-client-17
+```
+
+If multiple versions are installed, point the trigger at a specific
+binary:
+
+```yaml
+triggers:
+  - type: postgres
+    pg_dump_path: /usr/lib/postgresql/17/bin/pg_dump
+    pg_dumpall_path: /usr/lib/postgresql/17/bin/pg_dumpall
+    ...
+```
 
 ## Sources
 
@@ -512,6 +559,41 @@ under `Backups/pixo/`.
 `keep_last` controls per-destination rotation:
 - Without `group_by_run`: keep last N **files** (per filename prefix).
 - With `group_by_run`: keep last N **run-folders**.
+
+### S3-compatible storage (Backblaze B2, MinIO, Wasabi)
+
+The `s3` destination works with any S3-compatible service when you set
+`endpoint_url`. Backblaze B2 example:
+
+```yaml
+s3:
+  enabled: true
+  bucket: "my-backups"
+  region: "eu-central-003"                                  # from B2 console
+  endpoint_url: "https://s3.eu-central-003.backblazeb2.com"
+  access_key_id: "..."                                      # B2 keyID
+  secret_access_key: "..."                                  # B2 applicationKey
+  prefix: "backups"
+  keep_last: 30
+```
+
+Get B2 credentials at https://secure.backblaze.com/ → App Keys → Add a
+New Application Key. **Scope the key to one bucket** with read/write —
+don't use the master Application Key.
+
+Other S3-compatible providers use the same pattern — just change
+`endpoint_url` and `region` to match. MinIO example:
+
+```yaml
+s3:
+  endpoint_url: "https://minio.example.com:9000"
+  region: "us-east-1"            # MinIO ignores region but it's required
+  bucket: "backups"
+  ...
+```
+
+For AWS S3 (the original), omit `endpoint_url` — boto3 picks the right
+endpoint from `region`.
 
 ### WebDAV chunked upload (for Nextcloud)
 

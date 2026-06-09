@@ -20,6 +20,10 @@ class SQLiteTrigger(BaseTrigger):
         if not self.databases:
             raise ValueError("sqlite trigger: 'databases' is required")
         self.use_online_backup: bool = bool(cfg.get("use_online_backup", True))
+        # When True, output uses static filename 'dbname-full.sqlite' (no
+        # timestamp). Each backup OVERWRITES the previous one on disk.
+        # Pair with sources.rename_with_timestamp on upload.
+        self.static_local_name: bool = bool(cfg.get("static_local_name", False))
 
     def run(self) -> list[str]:
         out_dir = Path(self.output_dir)
@@ -31,7 +35,10 @@ class SQLiteTrigger(BaseTrigger):
             src = Path(p)
             if not src.exists():
                 raise FileNotFoundError(f"SQLite DB not found: {src}")
-            dest = out_dir / f"{src.stem}-full-{timestamp}.sqlite"
+            if self.static_local_name:
+                dest = out_dir / f"{src.stem}-full.sqlite"
+            else:
+                dest = out_dir / f"{src.stem}-full-{timestamp}.sqlite"
 
             if self.use_online_backup:
                 self.log.info("SQLite: online backup %s → %s", src.name, dest.name)

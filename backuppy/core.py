@@ -180,6 +180,10 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
     remote_dests = build_destinations(cfg, log)
     local = build_local(cfg, log)
 
+    # Log destinations summary so cron logs make it obvious where backups
+    # were sent (or weren't, if a section is disabled).
+    _log_destinations_summary(cfg, log)
+
     # If group_by_run is enabled, every destination is told to use a
     # per-run subdirectory named YYYYMMDD-HHMMSS. All artifacts of this
     # run land inside one subfolder, rotation runs per-directory.
@@ -314,6 +318,34 @@ def _upload_with_verify(storage: BaseStorage, local_dest: Path,
         log.info("  %s verify: OK", storage.name)
 
 
+def _log_destinations_summary(cfg: "Config", log: logging.Logger) -> None:
+    """Print a per-destination summary showing enabled/disabled status.
+
+    Helps catch the common 'I forgot to enable S3' situation: if a section
+    exists in the YAML but enabled=false, we want the user to SEE that.
+    """
+    rows: list[tuple[str, bool, str]] = [
+        ("local",   cfg.local.enabled,   cfg.local.path),
+        ("webdav",  cfg.webdav.enabled,  cfg.webdav.remote_path),
+        ("s3",      cfg.s3.enabled,      f"{cfg.s3.bucket}/{cfg.s3.prefix}"),
+        ("sftp",    cfg.sftp.enabled,    cfg.sftp.remote_path),
+        ("dropbox", cfg.dropbox.enabled, cfg.dropbox.remote_path),
+        ("gcs",     cfg.gcs.enabled,     f"{cfg.gcs.bucket}/{cfg.gcs.prefix}"),
+        ("azure",   cfg.azure.enabled,   f"{cfg.azure.container}/{cfg.azure.prefix}"),
+    ]
+    enabled = [r for r in rows if r[1]]
+    disabled = [r[0] for r in rows if not r[1]]
+
+    log.info("Destinations:")
+    if enabled:
+        for name, _, path in enabled:
+            log.info("  ✓ %-8s enabled  → %s", name, path)
+    if disabled:
+        log.info("  · disabled: %s", ", ".join(disabled))
+    if not enabled:
+        log.warning("No destinations enabled — backups will only stay in tmp_dir.")
+
+
 def _rotate_all(cfg: Config, sources, local, remotes, log: logging.Logger) -> None:
     """Rotate backups. Two modes:
 
@@ -398,6 +430,10 @@ def cmd_verify(cfg: Config, log: logging.Logger) -> int:
     # Local
     if cfg.local.enabled:
         build_local(cfg, log).check_access()
+
+    # Destinations summary — show every storage section's status so the user
+    # can spot "ah, I forgot to enable S3" before running a backup.
+    _log_destinations_summary(cfg, log)
 
     # Destinations
     for d in build_destinations(cfg, log):

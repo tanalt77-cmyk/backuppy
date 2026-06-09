@@ -27,6 +27,10 @@ class MySQLTrigger(BaseTrigger):
         self.events: bool = bool(cfg.get("events", True))
         self.extra_args: list[str] = cfg.get("extra_args", [])
         self.mysqldump_path: str = cfg.get("mysqldump_path", "mysqldump")
+        # When True, mysqldump writes to a static filename like 'appdb-full.sql'
+        # (no timestamp). Each backup OVERWRITES the previous one on disk.
+        # Pair with sources.rename_with_timestamp to add the timestamp on upload.
+        self.static_local_name: bool = bool(cfg.get("static_local_name", False))
 
     def _defaults_file(self) -> Path:
         tmp = tempfile.NamedTemporaryFile(
@@ -64,7 +68,10 @@ class MySQLTrigger(BaseTrigger):
         defaults_file = self._defaults_file()
         try:
             if not self.databases:
-                out = out_dir / f"all-databases-full-{timestamp}.sql"
+                if self.static_local_name:
+                    out = out_dir / "all-databases-full.sql"
+                else:
+                    out = out_dir / f"all-databases-full-{timestamp}.sql"
                 cmd = [*self._base_args(defaults_file), "--all-databases"]
                 self.log.info("MySQL: --all-databases → %s", out.name)
                 with open(out, "wb") as fh:
@@ -76,7 +83,10 @@ class MySQLTrigger(BaseTrigger):
                 produced.append(str(out))
             else:
                 for db in self.databases:
-                    out = out_dir / f"{db}-full-{timestamp}.sql"
+                    if self.static_local_name:
+                        out = out_dir / f"{db}-full.sql"
+                    else:
+                        out = out_dir / f"{db}-full-{timestamp}.sql"
                     cmd = [*self._base_args(defaults_file), db]
                     self.log.info("MySQL: %s → %s", db, out.name)
                     with open(out, "wb") as fh:

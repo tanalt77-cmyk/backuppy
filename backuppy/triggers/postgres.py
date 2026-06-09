@@ -57,6 +57,11 @@ class PostgresTrigger(BaseTrigger):
         self.extra_args: list[str] = cfg.get("extra_args", [])
         self.pg_dump_path: str = cfg.get("pg_dump_path", "pg_dump")
         self.pg_dumpall_path: str = cfg.get("pg_dumpall_path", "pg_dumpall")
+        # When True, pg_dump writes to a static filename like 'appdb-full.dump'
+        # (no timestamp). Each backup OVERWRITES the previous one on disk —
+        # keeps only ONE local copy per DB. Pair with sources.rename_with_timestamp
+        # to add the timestamp on upload, so cloud history is still complete.
+        self.static_local_name: bool = bool(cfg.get("static_local_name", False))
 
     def _env(self) -> dict[str, str]:
         env = dict(os.environ)
@@ -89,7 +94,10 @@ class PostgresTrigger(BaseTrigger):
 
         if not self.databases:
             # Whole cluster
-            out = out_dir / f"cluster-full-{timestamp}.sql"
+            if self.static_local_name:
+                out = out_dir / "cluster-full.sql"
+            else:
+                out = out_dir / f"cluster-full-{timestamp}.sql"
             cmd = [self.pg_dumpall_path, *self._common_args(),
                    "-f", str(out), *self.extra_args]
             self.log.info("Postgres: pg_dumpall → %s", out.name)
@@ -100,7 +108,10 @@ class PostgresTrigger(BaseTrigger):
         else:
             fmt_flag, ext = self._format_arg()
             for db in self.databases:
-                out = out_dir / f"{db}-full-{timestamp}{ext}"
+                if self.static_local_name:
+                    out = out_dir / f"{db}-full{ext}"
+                else:
+                    out = out_dir / f"{db}-full-{timestamp}{ext}"
                 cmd = [self.pg_dump_path, *self._common_args(),
                        "-F", fmt_flag, "-d", db,
                        "-f", str(out), *self.extra_args]

@@ -23,6 +23,10 @@ class MongoTrigger(BaseTrigger):
         self.oplog: bool = bool(cfg.get("oplog", False))
         self.extra_args: list[str] = cfg.get("extra_args", [])
         self.mongodump_path: str = cfg.get("mongodump_path", "mongodump")
+        # When True, tar output uses static filename like 'appdb-full.tar' (no
+        # timestamp). Each backup OVERWRITES the previous one on disk.
+        # Pair with sources.rename_with_timestamp on upload.
+        self.static_local_name: bool = bool(cfg.get("static_local_name", False))
 
     def _base_args(self) -> list[str]:
         args = [self.mongodump_path, "--uri", self.uri]
@@ -48,7 +52,9 @@ class MongoTrigger(BaseTrigger):
         if res.returncode != 0:
             raise RuntimeError(f"mongodump failed: {res.stderr.strip()}")
 
-        tar_path = out_dir / f"{label}-full-{timestamp}.tar"
+        tar_name = f"{label}-full.tar" if self.static_local_name \
+                   else f"{label}-full-{timestamp}.tar"
+        tar_path = out_dir / tar_name
         with tarfile.open(tar_path, "w") as tar:
             tar.add(staging, arcname=staging.name)
         shutil.rmtree(staging)

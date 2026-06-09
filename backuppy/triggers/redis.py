@@ -24,6 +24,10 @@ class RedisTrigger(BaseTrigger):
         self.use_bgsave: bool = bool(cfg.get("use_bgsave", True))
         self.save_timeout: int = int(cfg.get("save_timeout", 300))
         self.redis_cli_path: str = cfg.get("redis_cli_path", "redis-cli")
+        # When True, output uses static filename 'redis-full.rdb' (no
+        # timestamp). Each backup OVERWRITES the previous one on disk.
+        # Pair with sources.rename_with_timestamp on upload.
+        self.static_local_name: bool = bool(cfg.get("static_local_name", False))
 
     def _cli(self, *args: str) -> str:
         cmd = [self.redis_cli_path, "-h", self.host, "-p", str(self.port)]
@@ -59,7 +63,10 @@ class RedisTrigger(BaseTrigger):
         if not src.exists():
             raise FileNotFoundError(f"RDB file not found: {src}")
 
-        dest = out_dir / f"redis-full-{timestamp}.rdb"
+        if self.static_local_name:
+            dest = out_dir / "redis-full.rdb"
+        else:
+            dest = out_dir / f"redis-full-{timestamp}.rdb"
         shutil.copy2(src, dest)
         self.log.info("Redis: %s → %s", src.name, dest.name)
         return [str(dest)]
