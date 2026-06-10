@@ -39,7 +39,12 @@ class S3Storage(BaseStorage):
             kwargs["aws_access_key_id"] = self.cfg.access_key_id
             kwargs["aws_secret_access_key"] = self.cfg.secret_access_key
         if self.cfg.endpoint_url:
-            kwargs["endpoint_url"] = self.cfg.endpoint_url
+            endpoint = self.cfg.endpoint_url.strip()
+            # Auto-add https:// if user wrote just 'host.example.com'
+            if not endpoint.startswith(("http://", "https://")):
+                endpoint = "https://" + endpoint
+                self.log.debug("S3: normalized endpoint to %s", endpoint)
+            kwargs["endpoint_url"] = endpoint
 
         self._client = boto3.client("s3", **kwargs)
         return self._client
