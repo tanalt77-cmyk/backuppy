@@ -140,6 +140,7 @@ class FilesSource:
             tar_name = f"{model_name}-{self.archive_name}-{timestamp}.tar"
             tar_path = work_dir / tar_name
             self.log.info("  → packing into %s", tar_name)
+            skipped = 0
             with tarfile.open(tar_path, "w") as tar:
                 for f, root in matched:
                     try:
@@ -148,11 +149,18 @@ class FilesSource:
                     except ValueError:
                         # Path is not under root (shouldn't happen but be safe)
                         arcname = f.name
-                    tar.add(f, arcname=arcname)
+                    try:
+                        tar.add(f, arcname=arcname)
+                    except OSError as e:
+                        self.log.warning("FilesSource: skipped %s: %s", f, e)
+                        skipped += 1
+            if skipped:
+                self.log.warning("FilesSource: %d file(s) skipped due to OS errors", skipped)
             produced = [tar_path]
         else:
             # Copy each individually
             produced = []
+            skipped = 0
             for f, _root in matched:
                 if self.rename_with_timestamp:
                     # 'work-full.bak' → 'work-full-20260525-143012.bak'
@@ -170,8 +178,14 @@ class FilesSource:
                     while (work_dir / f"{base}-{i}{suf}").exists():
                         i += 1
                     dest = work_dir / f"{base}-{i}{suf}"
-                shutil.copy2(f, dest)
-                produced.append(dest)
+                try:
+                    shutil.copy2(f, dest)
+                    produced.append(dest)
+                except OSError as e:
+                    self.log.warning("FilesSource: skipped %s: %s", f, e)
+                    skipped += 1
+            if skipped:
+                self.log.warning("FilesSource: %d file(s) skipped due to OS errors", skipped)
 
         # Delete originals if requested
         if self.delete_after_pickup:
