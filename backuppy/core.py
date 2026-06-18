@@ -23,6 +23,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import logging.handlers
+import shutil
 import socket
 import subprocess
 import sys
@@ -224,6 +225,26 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
         Path(cfg.tmp_dir).mkdir(parents=True, exist_ok=True)
         tmp_parent = cfg.tmp_dir
         log.debug("Using tmp_dir: %s", tmp_parent)
+
+    # Sweep stale work dirs left behind by previous runs that were killed
+    # before TemporaryDirectory could clean up (OOM, SIGKILL, power loss,
+    # host reboot). Without this they accumulate silently and eventually
+    # fill the disk — observed 57G of stale backuppy-* dirs in the wild.
+    # We only touch dirs matching the prefix we own ("backuppy-*"), so
+    # foreign files in the same parent are left alone. TemporaryDirectory
+    # itself still handles the normal cases — this is a recovery net.
+    sweep_parent = tmp_parent or tempfile.gettempdir()
+    try:
+        for leftover in Path(sweep_parent).glob("backuppy-*"):
+            if leftover.is_dir():
+                try:
+                    shutil.rmtree(leftover)
+                    log.info("Removed stale work dir: %s", leftover)
+                except OSError as exc:
+                    log.warning("Could not remove stale work dir %s: %s",
+                                leftover, exc)
+    except OSError:
+        pass
 
     try:
         with tempfile.TemporaryDirectory(prefix="backuppy-", dir=tmp_parent) as tmp:
