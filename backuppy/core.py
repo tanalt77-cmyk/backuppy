@@ -230,19 +230,45 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
     # before TemporaryDirectory could clean up (OOM, SIGKILL, power loss,
     # host reboot). Without this they accumulate silently and eventually
     # fill the disk — observed 57G of stale backuppy-* dirs in the wild.
-    # We only touch dirs matching the prefix we own ("backuppy-*"), so
-    # foreign files in the same parent are left alone. TemporaryDirectory
-    # itself still handles the normal cases — this is a recovery net.
+    #
+    # Two safeguards keep us from disturbing a CONCURRENT run that shares
+    # the same tmp_dir (e.g. weekly cron firing while daily still packing):
+    #   - we only touch dirs matching our own prefix ("backuppy-*"), so
+    #     foreign files in the same parent are left alone;
+    #   - we skip dirs whose newest entry was modified less than STALE_AGE
+    #     seconds ago, on the assumption that a live run keeps writing to
+    #     its tar. An hour is conservatively above the longest plausible
+    #     "idle but alive" gap (e.g. a slow upload after compression).
+    # TemporaryDirectory itself still handles the normal cases — this is
+    # a recovery net for processes that were killed outright.
+    STALE_AGE = 3600  # seconds
     sweep_parent = tmp_parent or tempfile.gettempdir()
+    now = dt.datetime.now().timestamp()
     try:
         for leftover in Path(sweep_parent).glob("backuppy-*"):
-            if leftover.is_dir():
-                try:
-                    shutil.rmtree(leftover)
-                    log.info("Removed stale work dir: %s", leftover)
-                except OSError as exc:
-                    log.warning("Could not remove stale work dir %s: %s",
-                                leftover, exc)
+            if not leftover.is_dir():
+                continue
+            try:
+                # Newest mtime across the dir + its contents. Bare dir
+                # alone might be misleading (untouched after creation
+                # while children change), and tar writers update file
+                # mtime as they append.
+                mtimes = [leftover.stat().st_mtime]
+                mtimes.extend(p.stat().st_mtime for p in leftover.iterdir())
+                age = now - max(mtimes)
+            except OSError:
+                continue
+            if age < STALE_AGE:
+                log.debug("Skipping recent work dir (age %.0fs): %s",
+                          age, leftover)
+                continue
+            try:
+                shutil.rmtree(leftover)
+                log.info("Removed stale work dir: %s (age %.0fs)",
+                         leftover, age)
+            except OSError as exc:
+                log.warning("Could not remove stale work dir %s: %s",
+                            leftover, exc)
     except OSError:
         pass
 
