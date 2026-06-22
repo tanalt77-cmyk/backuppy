@@ -50,8 +50,14 @@ class S3Storage(BaseStorage):
         return self._client
 
     def _key(self, name: str) -> str:
-        pref = self.cfg.prefix.strip("/")
-        return f"{pref}/{name}" if pref else name
+        # Compose the S3 key: <prefix>/<run_subdir>/<name>, omitting empty
+        # segments. _run_subdir is set by core when group_by_run is on; if
+        # we ignore it, every artifact lands flat in the bucket, list_files
+        # sees no '/' in names, list_run_dirs returns empty, and rotation
+        # silently keeps EVERY backup forever — observed 14 files when
+        # keep_last=7 was configured.
+        parts = [p for p in (self.cfg.prefix.strip("/"), self._run_subdir, name) if p]
+        return "/".join(parts)
 
     def upload(self, local: Path) -> str:
         from boto3.s3.transfer import TransferConfig
