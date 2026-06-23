@@ -160,6 +160,73 @@ def keep_last_for(storage: BaseStorage, cfg: Config) -> int:
 # Commands
 # ============================================================================
 
+
+def _humanize_error(exc: BaseException) -> str:
+    """Turn an exception chain into a short, operator-friendly summary.
+
+    Errors during backup are typically one of: network/DNS, auth, disk full,
+    permissions, missing files. The raw traceback for those is ~80 lines of
+    library internals that hide the actual cause from non-developers. Walk
+    the cause chain to the root, classify common cases, fall back to the
+    exception class+message for unknown ones.
+    """
+    root = exc
+    while root.__cause__ is not None or root.__context__ is not None:
+        root = root.__cause__ or root.__context__
+    msg = str(root) or root.__class__.__name__
+    cls = root.__class__.__name__
+
+    # Network/DNS — usually wrapped in urllib3/requests/botocore exceptions.
+    # Reach into the original to surface a single actionable line.
+    chain_text = " | ".join(str(e) for e in _exception_chain(exc))
+    if "Name or service not known" in chain_text or "NameResolutionError" in cls:
+        host = _extract_host(chain_text)
+        if host:
+            return f"DNS lookup failed for {host} — check /etc/resolv.conf or the URL"
+        return "DNS lookup failed — check /etc/resolv.conf or the destination URL"
+    if "Connection refused" in chain_text:
+        return f"Connection refused — {msg}"
+    if "Connection timed out" in chain_text or "TimeoutError" in cls:
+        return f"Connection timed out — {msg}"
+    if "Certificate" in chain_text or "SSL" in chain_text or "TLS" in chain_text:
+        return f"TLS/certificate problem — {msg}"
+    if "No space left on device" in chain_text:
+        return "Disk full on the agent — free up /var/tmp/backuppy or set tmp_dir to a larger disk"
+    if "Permission denied" in chain_text:
+        return f"Permission denied — {msg}"
+    if "401" in chain_text or "403" in chain_text or "Unauthorized" in chain_text:
+        return f"Authentication failed — check storage credentials ({msg})"
+    if "Device or resource busy" in chain_text:
+        return f"File held open by another process — {msg}"
+
+    return f"{cls}: {msg}"
+
+
+def _exception_chain(exc: BaseException) -> list[BaseException]:
+    """Walk __cause__/__context__ producing the root-to-leaf list."""
+    out: list[BaseException] = []
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        out.append(cur)
+        cur = cur.__cause__ or cur.__context__
+    return out
+
+
+def _extract_host(text: str) -> str | None:
+    """Pull a host out of a ConnectionPool message like
+    \"HTTPSConnectionPool(host='data.pixophone.com', port=443)\"."""
+    import re as _re
+    m = _re.search(r"host='([^']+)'", text)
+    if m:
+        return m.group(1)
+    m = _re.search(r"Failed to resolve '([^']+)'", text)
+    if m:
+        return m.group(1)
+    return None
+
+
 def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
     from .notify import WarningCollector
     host = socket.gethostname()
@@ -308,13 +375,23 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
             # 4. Rotation
             _rotate_all(cfg, sources, local, remote_dests, log)
 
-    except Exception:
+    except Exception as e:
+        # Operator-facing summary on one line — the actual cause, not the
+        # urllib3/requests/botocore wrapping chain.
+        summary = _humanize_error(e)
+        log.error("FAILED: %s", summary)
+        # Full traceback to DEBUG so it's still in the file log for forensics
+        # without polluting the operator's view of what went wrong.
         tb = traceback.format_exc()
-        log.error("FAILED:\n%s", tb)
+        log.debug("Full traceback:\n%s", tb)
         run_hooks("on_failure", cfg.hooks.on_failure, log)
         run_hooks("after", cfg.hooks.after, log)
         log.removeHandler(warn_collector)
-        body = f"Backup failed at {started:%Y-%m-%d %H:%M:%S}\n\n{tb}"
+        body = (
+            f"Backup failed at {started:%Y-%m-%d %H:%M:%S}\n\n"
+            f"{summary}\n\n"
+            f"Full traceback (for debugging):\n{tb}"
+        )
         if warn_collector.messages:
             body += (
                 f"\n\nWarnings collected before failure "
