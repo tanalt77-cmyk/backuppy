@@ -525,6 +525,61 @@ def cmd_list(cfg: Config, log: logging.Logger) -> int:
     return 0
 
 
+def _dest_location(cfg: Config, name: str) -> str:
+    """Human-readable '<model>/' folder location for a destination type."""
+    def _pfx(p: str) -> str:
+        return (p.rstrip("/") + "/") if p else ""
+    if name == "s3":
+        return f"{cfg.s3.bucket}/{_pfx(cfg.s3.prefix)}{cfg.name}"
+    if name == "gcs":
+        return f"{cfg.gcs.bucket}/{_pfx(cfg.gcs.prefix)}{cfg.name}"
+    if name == "azure":
+        return f"{cfg.azure.container}/{_pfx(cfg.azure.prefix)}{cfg.name}"
+    if name == "webdav":
+        return f"{cfg.webdav.remote_path.rstrip('/')}/{cfg.name}"
+    if name == "sftp":
+        return f"{cfg.sftp.remote_path.rstrip('/')}/{cfg.name}"
+    if name == "dropbox":
+        return f"{cfg.dropbox.remote_path.rstrip('/')}/{cfg.name}"
+    if name == "local":
+        return str(Path(cfg.local.path) / cfg.name)
+    return cfg.name
+
+
+def model_usage(cfg: Config, log: logging.Logger) -> dict:
+    """How much space this model's backups occupy on each destination.
+
+    Each destination's folder is already scoped to /<model>/, so summing
+    list_files() sizes gives exactly that model's footprint. 'backups' counts
+    distinct top-level run-subdirs (one per backup when group_by_run is on).
+    """
+    out: dict = {"name": cfg.name, "destinations": [], "total_bytes": 0}
+
+    def _measure(store, type_name: str) -> None:
+        loc = _dest_location(cfg, type_name)
+        try:
+            files = store.list_files()
+        except Exception as e:  # noqa: BLE001
+            out["destinations"].append({"type": type_name, "location": loc,
+                                        "error": str(e)[:200]})
+            return
+        total = sum(int(f.get("size", 0) or 0) for f in files)
+        runs = {f["name"].split("/", 1)[0] for f in files if "/" in f["name"]}
+        out["destinations"].append({
+            "type": type_name, "location": loc,
+            "bytes": total, "files": len(files), "backups": len(runs),
+        })
+        out["total_bytes"] += total
+
+    if cfg.local.enabled:
+        local = build_local(cfg, log)
+        if local is not None:
+            _measure(local, "local")
+    for d in build_destinations(cfg, log):
+        _measure(d, d.name)
+    return out
+
+
 def cmd_verify(cfg: Config, log: logging.Logger) -> int:
     log.info("Config OK, name: %s", cfg.name)
 

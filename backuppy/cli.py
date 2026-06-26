@@ -23,7 +23,7 @@ from pathlib import Path
 
 from . import __version__
 from .config import Config
-from .core import setup_logger, cmd_run, cmd_list, cmd_verify, cmd_models
+from .core import setup_logger, cmd_run, cmd_list, cmd_verify, cmd_models, model_usage
 from .cmd_new import cmd_new, cmd_list_templates, TEMPLATES
 
 
@@ -133,6 +133,54 @@ def _add_target_args(parser: argparse.ArgumentParser) -> None:
                         help=f"All models in {DEFAULT_CONFIGS_DIR}/")
 
 
+def _fmt_bytes(b: int) -> str:
+    f = float(b)
+    for u in ("B", "KB", "MB", "GB", "TB"):
+        if f < 1024 or u == "TB":
+            return f"{f:.1f} {u}"
+        f /= 1024
+    return f"{f:.1f} TB"
+
+
+def cmd_usage(config_paths, as_json: bool) -> int:
+    """Report each model's backup footprint per destination."""
+    import json as _json
+    import logging
+
+    quiet = logging.getLogger("backuppy.usage")
+    if not quiet.handlers:
+        quiet.addHandler(logging.NullHandler())
+    quiet.propagate = False
+
+    results = []
+    for cfg_path in config_paths:
+        try:
+            cfg = Config.load(str(cfg_path))
+        except Exception as e:  # noqa: BLE001
+            if not as_json:
+                print(f"skip {cfg_path}: {e}", file=sys.stderr)
+            continue
+        results.append(model_usage(cfg, quiet))
+
+    if as_json:
+        print(_json.dumps({"models": results}))
+        return 0
+
+    grand = 0
+    for m in results:
+        print(f"{m['name']}  —  {_fmt_bytes(m['total_bytes'])}")
+        for d in m["destinations"]:
+            if "error" in d:
+                print(f"    {d['type']:<7} {d['location']}  ERROR: {d['error']}")
+            else:
+                print(f"    {d['type']:<7} {_fmt_bytes(d['bytes']):>10}  "
+                      f"({d.get('backups', 0)} backups, {d['files']} files)  {d['location']}")
+        grand += m["total_bytes"]
+    if len(results) > 1:
+        print(f"\nTotal: {_fmt_bytes(grand)}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog="backuppy",
@@ -167,6 +215,13 @@ def main() -> int:
     p_models = sub.add_parser("models",
                               help="List discovered models in a directory")
     _add_target_args(p_models)
+
+    # ---- usage ----
+    p_usage = sub.add_parser("usage",
+                             help="Report how much space each model's backups take")
+    _add_target_args(p_usage)
+    p_usage.add_argument("--json", action="store_true",
+                         help="Emit machine-readable JSON instead of a table")
 
     # ---- new ----
     p_new = sub.add_parser("new", help="Create a new model from a template")
@@ -243,10 +298,9 @@ def main() -> int:
         from .cmd_migrate import cmd_migrate
         return cmd_migrate(args.targets, args.dry_run, args.all_flag, args.yes)
 
-    # For models without any target → show what's available in DEFAULT_CONFIGS_DIR
-    if args.command == "models" and not (args.names or args.config or
+    # For models/usage without any target → operate on DEFAULT_CONFIGS_DIR
+    if args.command in ("models", "usage") and not (args.names or args.config or
                                           args.configs_dir or args.all):
-        # Default behavior: list models in DEFAULT_CONFIGS_DIR
         args.all = True
 
     config_paths = _collect_configs(
@@ -258,6 +312,9 @@ def main() -> int:
 
     if args.command == "models":
         return cmd_models(config_paths)
+
+    if args.command == "usage":
+        return cmd_usage(config_paths, getattr(args, "json", False))
 
     overall = 0
     multi = len(config_paths) > 1
