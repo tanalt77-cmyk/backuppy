@@ -23,7 +23,10 @@ from pathlib import Path
 
 from . import __version__
 from .config import Config
-from .core import setup_logger, cmd_run, cmd_list, cmd_verify, cmd_models, model_usage
+from .core import (
+    setup_logger, cmd_run, cmd_list, cmd_verify, cmd_models,
+    model_usage, model_storage_detail, delete_run_dir,
+)
 from .cmd_new import cmd_new, cmd_list_templates, TEMPLATES
 
 
@@ -220,6 +223,81 @@ def cmd_usage(config_paths, as_json: bool) -> int:
     return 0
 
 
+def cmd_prune(config_paths, args) -> int:
+    """List run-dirs per destination, or delete one chosen run-dir."""
+    import json as _json
+    import logging
+
+    quiet = logging.getLogger("backuppy.prune")
+    if not quiet.handlers:
+        quiet.addHandler(logging.NullHandler())
+    quiet.propagate = False
+
+    # ---- delete mode ----
+    if args.delete:
+        if len(config_paths) != 1:
+            print("prune --delete needs exactly one model (name it explicitly)",
+                  file=sys.stderr)
+            return 2
+        try:
+            cfg = Config.load(str(config_paths[0]))
+        except Exception as e:  # noqa: BLE001
+            print(f"Failed to load {config_paths[0]}: {e}", file=sys.stderr)
+            return 2
+        try:
+            res = delete_run_dir(cfg, args.delete, args.dest, quiet,
+                                 dry_run=not args.yes)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if args.json:
+            print(_json.dumps(res))
+            return 0
+        verb = "DELETED" if not res["dry_run"] else "would delete"
+        for r in res["results"]:
+            if "deleted" in r or "would_delete" in r:
+                print(f"  {verb} {res['name']}/{args.delete} on {r['type']} "
+                      f"({_fmt_bytes(r.get('bytes', 0))})")
+            elif "skipped" in r:
+                print(f"  {r['type']}: {r['skipped']}")
+            elif "error" in r:
+                print(f"  {r['type']}: ERROR {r['error']}")
+        if res["dry_run"]:
+            print("  (dry-run — pass --yes to actually delete)")
+        return 0
+
+    # ---- list mode ----
+    results = []
+    for cfg_path in config_paths:
+        try:
+            cfg = Config.load(str(cfg_path))
+        except Exception as e:  # noqa: BLE001
+            if not args.json:
+                print(f"skip {cfg_path}: {e}", file=sys.stderr)
+            continue
+        results.append(model_storage_detail(cfg, quiet))
+
+    if args.json:
+        print(_json.dumps({"models": results}))
+        return 0
+
+    for m in results:
+        print(f"{m['name']}")
+        for d in m["destinations"]:
+            if "error" in d:
+                print(f"  {d['type']}: ERROR {d['error']}")
+                continue
+            print(f"  {d['type']}  ({d['location']})")
+            for r in d["runs"]:
+                flag = "" if r["is_run"] else "  [not a run-dir]"
+                print(f"      {r['name']}  {_fmt_bytes(r['bytes']):>10}  "
+                      f"({r['files']} files){flag}")
+            if d.get("loose_files"):
+                print(f"      (loose files: {d['loose_files']}, "
+                      f"{_fmt_bytes(d['loose_bytes'])})")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog="backuppy",
@@ -268,6 +346,19 @@ def main() -> int:
     _add_target_args(p_usage)
     p_usage.add_argument("--json", action="store_true",
                          help="Emit machine-readable JSON instead of a table")
+
+    # ---- prune ----
+    p_prune = sub.add_parser("prune",
+                             help="List or delete individual backup run-dirs on the storages")
+    _add_target_args(p_prune)
+    p_prune.add_argument("--json", action="store_true",
+                         help="Emit machine-readable JSON instead of a table")
+    p_prune.add_argument("--delete", metavar="RUNDIR",
+                         help="Delete this run-dir (YYYYMMDD-HHMMSS) from the model's storages")
+    p_prune.add_argument("--dest", metavar="TYPE",
+                         help="Limit --delete to one destination (s3/webdav/local/...)")
+    p_prune.add_argument("--yes", "-y", action="store_true",
+                         help="Actually delete (without this, --delete is a dry-run)")
 
     # ---- new ----
     p_new = sub.add_parser("new", help="Create a new model from a template")
@@ -348,6 +439,10 @@ def main() -> int:
     if args.command in ("models", "usage") and not (args.names or args.config or
                                           args.configs_dir or args.all):
         args.all = True
+    # prune in list mode (no --delete) also defaults to all models
+    if args.command == "prune" and not getattr(args, "delete", None) and not (
+            args.names or args.config or args.configs_dir or args.all):
+        args.all = True
 
     config_paths = _collect_configs(
         getattr(args, "names", []) or [],
@@ -361,6 +456,9 @@ def main() -> int:
 
     if args.command == "usage":
         return cmd_usage(config_paths, getattr(args, "json", False))
+
+    if args.command == "prune":
+        return cmd_prune(config_paths, args)
 
     # Serialize `run` invocations on this host: while one backup runs, another
     # (e.g. a weekly/monthly model fired by cron) waits for it to finish, so a

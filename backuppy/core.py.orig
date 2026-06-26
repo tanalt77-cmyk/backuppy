@@ -23,7 +23,6 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import logging.handlers
-import re
 import shutil
 import socket
 import subprocess
@@ -579,103 +578,6 @@ def model_usage(cfg: Config, log: logging.Logger) -> dict:
     for d in build_destinations(cfg, log):
         _measure(d, d.name)
     return out
-
-
-_RUNDIR_RE = re.compile(r"^\d{8}-\d{6}$")
-
-
-def model_storage_detail(cfg: Config, log: logging.Logger) -> dict:
-    """Per-destination listing of a model's run-dirs (one per backup) + sizes.
-
-    Lets the portal show exactly what's stored and how big each backup is, so
-    an operator can delete specific old ones by hand.
-    """
-    out: dict = {"name": cfg.name, "destinations": []}
-
-    def _detail(store, type_name: str) -> None:
-        loc = _dest_location(cfg, type_name)
-        try:
-            files = store.list_files()
-        except Exception as e:  # noqa: BLE001
-            out["destinations"].append({"type": type_name, "location": loc,
-                                        "error": str(e)[:200]})
-            return
-        runs: dict = {}
-        loose = {"bytes": 0, "files": 0}
-        for f in files:
-            name = f["name"]
-            size = int(f.get("size", 0) or 0)
-            top = name.split("/", 1)[0] if "/" in name else None
-            if top:
-                r = runs.setdefault(top, {"bytes": 0, "files": 0})
-                r["bytes"] += size
-                r["files"] += 1
-            else:
-                loose["bytes"] += size
-                loose["files"] += 1
-        run_list = [{"name": k, "bytes": v["bytes"], "files": v["files"],
-                     "is_run": bool(_RUNDIR_RE.match(k))}
-                    for k, v in sorted(runs.items(), reverse=True)]
-        out["destinations"].append({
-            "type": type_name, "location": loc, "runs": run_list,
-            "loose_files": loose["files"], "loose_bytes": loose["bytes"],
-        })
-
-    if cfg.local.enabled:
-        local = build_local(cfg, log)
-        if local is not None:
-            _detail(local, "local")
-    for d in build_destinations(cfg, log):
-        _detail(d, d.name)
-    return out
-
-
-def delete_run_dir(cfg: Config, run_dir: str, dest_type: str | None,
-                   log: logging.Logger, dry_run: bool = True) -> dict:
-    """Delete one run-dir from one (or all) of a model's destinations.
-
-    Safety: only names matching a backuppy run-dir (YYYYMMDD-HHMMSS) are
-    accepted, and deletion is scoped to the model's own /<model>/ prefix —
-    it can never reach sibling models or non-backuppy objects. Dry-run by
-    default; pass dry_run=False to actually delete.
-    """
-    if not _RUNDIR_RE.match(run_dir):
-        raise ValueError(
-            f"refusing to delete '{run_dir}': not a backuppy run-dir "
-            f"(expected YYYYMMDD-HHMMSS)")
-
-    stores: list[tuple[str, object]] = []
-    if cfg.local.enabled and dest_type in (None, "local"):
-        local = build_local(cfg, log)
-        if local is not None:
-            stores.append(("local", local))
-    for d in build_destinations(cfg, log):
-        if dest_type in (None, d.name):
-            stores.append((d.name, d))
-
-    results = []
-    for name, store in stores:
-        try:
-            present = run_dir in store.list_run_dirs()
-        except Exception as e:  # noqa: BLE001
-            results.append({"type": name, "error": str(e)[:200]})
-            continue
-        if not present:
-            results.append({"type": name, "skipped": "not present"})
-            continue
-        size = 0
-        try:
-            size = sum(int(f.get("size", 0) or 0) for f in store.list_files()
-                       if f["name"].split("/", 1)[0] == run_dir)
-        except Exception:  # noqa: BLE001
-            pass
-        if dry_run:
-            results.append({"type": name, "would_delete": run_dir, "bytes": size})
-            continue
-        store.delete_run_dir(run_dir, log)
-        results.append({"type": name, "deleted": run_dir, "bytes": size})
-    return {"name": cfg.name, "run_dir": run_dir, "dry_run": dry_run,
-            "results": results}
 
 
 def cmd_verify(cfg: Config, log: logging.Logger) -> int:
