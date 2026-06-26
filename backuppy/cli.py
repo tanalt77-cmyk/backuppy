@@ -33,35 +33,38 @@ from .cmd_new import cmd_new, cmd_list_templates, TEMPLATES
 DEFAULT_CONFIGS_DIR = "/etc/backuppy"
 
 
-def _acquire_run_lock(path: str, timeout: int):
+def _acquire_run_lock(path: str, timeout: int, label: str = ""):
     """Acquire a host-global exclusive lock so only one backup runs at a time.
 
     Returns the open lock file (keep it referenced to hold the lock; closing it
-    releases). Waits up to `timeout` seconds for a competing run to finish,
-    logging a one-time notice, then raises TimeoutError if it never frees up.
+    releases). On success, records "PID model started_at" into the lock file so
+    `cat <lockfile>` — and the portal — can tell which model is running now.
+    Waits up to `timeout` seconds for a competing run to finish, then raises
+    TimeoutError if it never frees up.
     """
+    import datetime
     import fcntl
     import os
     import time
 
+    # O_RDWR|O_CREAT (NOT truncating) — a waiter must not wipe the active
+    # holder's recorded PID/model when it opens the same file.
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        fd = open(path, "w")
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
     except OSError:
         path = "/tmp/backuppy.lock"
-        fd = open(path, "w")
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    f = os.fdopen(fd, "r+")
 
     start = time.monotonic()
     notified = False
     while True:
         try:
-            fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            if notified:
-                print("[backuppy] previous run finished — starting now.", file=sys.stderr)
-            return fd
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             if time.monotonic() - start >= timeout:
-                fd.close()
+                f.close()
                 raise TimeoutError(
                     f"another backuppy run is still in progress; waited "
                     f"{timeout}s for the lock ({path}) and gave up — skipping this run")
@@ -70,6 +73,33 @@ def _acquire_run_lock(path: str, timeout: int):
                       f"it to finish (lock {path}, up to {timeout}s)...", file=sys.stderr)
                 notified = True
             time.sleep(5)
+            continue
+        # Acquired — stamp who's running so it's visible via cat / the portal.
+        try:
+            f.seek(0)
+            f.truncate(0)
+            f.write(f"{os.getpid()} {label} "
+                    f"{datetime.datetime.now().isoformat(timespec='seconds')}\n")
+            f.flush()
+        except OSError:
+            pass
+        if notified:
+            print("[backuppy] previous run finished — starting now.", file=sys.stderr)
+        return f
+
+
+def _release_run_lock(f) -> None:
+    """Release the run lock and blank the file so an idle host shows nothing."""
+    try:
+        f.seek(0)
+        f.truncate(0)
+        f.flush()
+    except OSError:
+        pass
+    try:
+        f.close()  # closing the fd releases the flock
+    except OSError:
+        pass
 
 
 def _resolve_name_to_path(name: str, base_dir: Path) -> Path | None:
@@ -467,8 +497,9 @@ def main() -> int:
     run_lock = None
     if (args.command == "run" and not getattr(args, "no_lock", False)
             and not getattr(args, "dry_run", False)):
+        label = ",".join(p.stem for p in config_paths) if config_paths else ""
         try:
-            run_lock = _acquire_run_lock(args.lock_file, args.lock_timeout)
+            run_lock = _acquire_run_lock(args.lock_file, args.lock_timeout, label)
         except TimeoutError as e:
             print(f"[backuppy] {e}", file=sys.stderr)
             return 1
@@ -507,7 +538,7 @@ def main() -> int:
                     log.error("###### Model %s FAILED (rc=%d) ######", cfg.name, rc)
     finally:
         if run_lock is not None:
-            run_lock.close()
+            _release_run_lock(run_lock)
 
     return overall
 
