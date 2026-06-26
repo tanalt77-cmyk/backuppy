@@ -30,6 +30,45 @@ from .cmd_new import cmd_new, cmd_list_templates, TEMPLATES
 DEFAULT_CONFIGS_DIR = "/etc/backuppy"
 
 
+def _acquire_run_lock(path: str, timeout: int):
+    """Acquire a host-global exclusive lock so only one backup runs at a time.
+
+    Returns the open lock file (keep it referenced to hold the lock; closing it
+    releases). Waits up to `timeout` seconds for a competing run to finish,
+    logging a one-time notice, then raises TimeoutError if it never frees up.
+    """
+    import fcntl
+    import os
+    import time
+
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd = open(path, "w")
+    except OSError:
+        path = "/tmp/backuppy.lock"
+        fd = open(path, "w")
+
+    start = time.monotonic()
+    notified = False
+    while True:
+        try:
+            fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if notified:
+                print("[backuppy] previous run finished — starting now.", file=sys.stderr)
+            return fd
+        except OSError:
+            if time.monotonic() - start >= timeout:
+                fd.close()
+                raise TimeoutError(
+                    f"another backuppy run is still in progress; waited "
+                    f"{timeout}s for the lock ({path}) and gave up — skipping this run")
+            if not notified:
+                print(f"[backuppy] another backup is running on this host — waiting for "
+                      f"it to finish (lock {path}, up to {timeout}s)...", file=sys.stderr)
+                notified = True
+            time.sleep(5)
+
+
 def _resolve_name_to_path(name: str, base_dir: Path) -> Path | None:
     """Try base_dir/<name>.yml, base_dir/<name>.yaml. Return None if not found."""
     for ext in (".yml", ".yaml"):
@@ -200,6 +239,13 @@ def main() -> int:
     _add_target_args(p_run)
     p_run.add_argument("--dry-run", action="store_true",
                        help="Show what would be done without doing it.")
+    p_run.add_argument("--no-lock", action="store_true",
+                       help="Don't serialize with other backuppy runs on this host.")
+    p_run.add_argument("--lock-timeout", type=int, default=21600,
+                       help="Seconds to wait for another run to finish before "
+                            "giving up (default 21600 = 6h).")
+    p_run.add_argument("--lock-file", default="/run/lock/backuppy.lock",
+                       help="Host-global lock file used to serialize runs.")
 
     # ---- list ----
     p_list = sub.add_parser("list",
@@ -316,37 +362,54 @@ def main() -> int:
     if args.command == "usage":
         return cmd_usage(config_paths, getattr(args, "json", False))
 
+    # Serialize `run` invocations on this host: while one backup runs, another
+    # (e.g. a weekly/monthly model fired by cron) waits for it to finish, so a
+    # single agent never runs two heavy backups at once. Read-only commands
+    # (list/verify) and --dry-run are never locked.
+    run_lock = None
+    if (args.command == "run" and not getattr(args, "no_lock", False)
+            and not getattr(args, "dry_run", False)):
+        try:
+            run_lock = _acquire_run_lock(args.lock_file, args.lock_timeout)
+        except TimeoutError as e:
+            print(f"[backuppy] {e}", file=sys.stderr)
+            return 1
+
     overall = 0
     multi = len(config_paths) > 1
-    for cfg_path in config_paths:
-        try:
-            cfg = Config.load(str(cfg_path))
-        except FileNotFoundError:
-            print(f"Config not found: {cfg_path}", file=sys.stderr)
-            overall = 2
-            continue
-        except Exception as e:
-            print(f"Failed to parse {cfg_path}: {e}", file=sys.stderr)
-            overall = 2
-            continue
+    try:
+        for cfg_path in config_paths:
+            try:
+                cfg = Config.load(str(cfg_path))
+            except FileNotFoundError:
+                print(f"Config not found: {cfg_path}", file=sys.stderr)
+                overall = 2
+                continue
+            except Exception as e:
+                print(f"Failed to parse {cfg_path}: {e}", file=sys.stderr)
+                overall = 2
+                continue
 
-        log = setup_logger(cfg.log)
-        if multi:
-            log.info("###### Model: %s (%s) ######", cfg.name, cfg_path.name)
-
-        if args.command == "run":
-            rc = cmd_run(cfg, log, args.dry_run)
-        elif args.command == "list":
-            rc = cmd_list(cfg, log)
-        elif args.command == "verify":
-            rc = cmd_verify(cfg, log)
-        else:
-            rc = 2
-
-        if rc != 0:
-            overall = rc if overall == 0 else overall
+            log = setup_logger(cfg.log)
             if multi:
-                log.error("###### Model %s FAILED (rc=%d) ######", cfg.name, rc)
+                log.info("###### Model: %s (%s) ######", cfg.name, cfg_path.name)
+
+            if args.command == "run":
+                rc = cmd_run(cfg, log, args.dry_run)
+            elif args.command == "list":
+                rc = cmd_list(cfg, log)
+            elif args.command == "verify":
+                rc = cmd_verify(cfg, log)
+            else:
+                rc = 2
+
+            if rc != 0:
+                overall = rc if overall == 0 else overall
+                if multi:
+                    log.error("###### Model %s FAILED (rc=%d) ######", cfg.name, rc)
+    finally:
+        if run_lock is not None:
+            run_lock.close()
 
     return overall
 
