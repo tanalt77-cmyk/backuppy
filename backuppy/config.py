@@ -125,6 +125,10 @@ class WebDAVCfg:
     chunked_threshold_mb: int = 500     # use chunked for files >= this size
     chunked_chunk_size_mb: int = 50     # size of each chunk
     chunked_retries: int = 3            # retry per-chunk on network errors
+    # Server-side assembly (final MOVE) of a large chunked upload can take much
+    # longer than `timeout`. 0 = auto: scale the MOVE read-timeout by file size.
+    # Set a positive number of seconds to override.
+    chunked_assemble_timeout: int = 0
 
 
 @dataclass

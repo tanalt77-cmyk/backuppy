@@ -198,18 +198,38 @@ class WebDAVStorage(BaseStorage):
                     progress.advance(len(chunk_data))
 
             # Phase 3: MOVE the .file pseudo-resource → final location.
-            # Nextcloud will assemble all chunks and place them at Destination.
+            # Nextcloud assembles all chunks server-side; for a large file this
+            # can take far longer than the normal request timeout, so use a
+            # size-scaled read timeout. If it still times out, the assembly may
+            # well have finished anyway — verify the destination before failing.
             self.log.debug("WebDAV chunked: MOVE .file → %s", final_url)
-            r = self._session.request(
-                "MOVE",
-                upload_dir + ".file",
-                timeout=self.cfg.timeout,
-                verify=self.cfg.verify_tls,
-                headers={
-                    "Destination": final_url,
-                    "OC-Total-Length": str(size),
-                },
-            )
+            move_timeout = self._assemble_timeout(size)
+            try:
+                r = self._session.request(
+                    "MOVE",
+                    upload_dir + ".file",
+                    timeout=move_timeout,
+                    verify=self.cfg.verify_tls,
+                    headers={
+                        "Destination": final_url,
+                        "OC-Total-Length": str(size),
+                    },
+                )
+            except requests.exceptions.Timeout:
+                self.log.warning(
+                    "WebDAV chunked: MOVE timed out after %ss while the server "
+                    "assembles %s — checking whether it completed anyway…",
+                    move_timeout[1], local.name,
+                )
+                if self._assembled_ok(final_url, size):
+                    self.log.info(
+                        "WebDAV chunked: %s assembled OK despite the MOVE "
+                        "timeout (data was fully uploaded)", local.name,
+                    )
+                    progress.done()
+                    return final_url
+                progress.done(success=False)
+                raise
             if r.status_code not in (201, 204):
                 progress.done(success=False)
                 raise RuntimeError(
@@ -228,6 +248,39 @@ class WebDAVStorage(BaseStorage):
             raise
 
         return final_url
+
+    def _assemble_timeout(self, size: int):
+        """(connect, read) timeout for the final MOVE.
+
+        Read timeout scales with file size (≈ a 20 MB/s assembly floor, plus a
+        base) so a large file doesn't trip the normal request timeout while the
+        server is still concatenating chunks. `chunked_assemble_timeout` > 0
+        overrides the read value."""
+        override = getattr(self.cfg, "chunked_assemble_timeout", 0) or 0
+        if override > 0:
+            read = override
+        else:
+            read = max(self.cfg.timeout, 300 + int(size / (20 * 1024 * 1024)))
+        connect = min(self.cfg.timeout, 60)
+        return (connect, read)
+
+    def _assembled_ok(self, final_url: str, expected_size: int,
+                      tries: int = 30, delay: int = 60) -> bool:
+        """After a MOVE timeout, poll the destination: Nextcloud only exposes the
+        final path once assembly has finished, so a 200 there (with the expected
+        size when the server reports it) means the upload actually succeeded."""
+        for _ in range(tries):
+            try:
+                r = self._session.head(final_url, timeout=self.cfg.timeout,
+                                       verify=self.cfg.verify_tls)
+                if r.status_code in (200, 204):
+                    cl = r.headers.get("Content-Length")
+                    if cl is None or int(cl) == expected_size:
+                        return True
+            except requests.exceptions.RequestException:
+                pass
+            time.sleep(delay)
+        return False
 
     def _put_chunk_with_retry(self, chunk_url: str, data: bytes,
                               final_url: str, idx: int, total: int) -> None:
