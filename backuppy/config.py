@@ -129,6 +129,10 @@ class WebDAVCfg:
     # longer than `timeout`. 0 = auto: scale the MOVE read-timeout by file size.
     # Set a positive number of seconds to override.
     chunked_assemble_timeout: int = 0
+    # Concurrent chunk uploads (1 = sequential). Higher opens several connections
+    # at once, which helps when the server throttles per-connection. Peak memory
+    # is roughly chunked_chunk_size_mb * chunked_parallel.
+    chunked_parallel: int = 1
 
 
 @dataclass

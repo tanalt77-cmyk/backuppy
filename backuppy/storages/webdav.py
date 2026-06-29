@@ -36,10 +36,12 @@ class WebDAVStorage(BaseStorage):
         # chunked PUTs, eliminating ~300ms handshake per chunk.
         self._session = requests.Session()
         self._session.auth = self.auth
-        # Increase connection pool to handle quick succession of PUTs
+        # Increase connection pool to handle quick succession of PUTs — and to
+        # allow several in-flight at once when chunked_parallel > 1.
+        _pool = max(4, getattr(cfg, "chunked_parallel", 1) or 1)
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=4,
-            pool_maxsize=4,
+            pool_connections=_pool,
+            pool_maxsize=_pool,
             max_retries=0,            # we handle retries ourselves
         )
         self._session.mount("http://", adapter)
@@ -180,22 +182,27 @@ class WebDAVStorage(BaseStorage):
                 f"{r.text[:200]}"
             )
 
-        # Phase 2: upload chunks
+        # Phase 2: upload chunks (optionally several at a time)
         progress = Progress("Uploading (webdav)", total_bytes=size,
                             label=local.name, log=self.log)
+        parallel = max(1, getattr(self.cfg, "chunked_parallel", 1) or 1)
         try:
-            with open(local, "rb") as f:
-                for idx in range(1, total_chunks + 1):
-                    chunk_data = f.read(chunk_size)
-                    if not chunk_data:
-                        break
-                    chunk_name = f"{idx:08d}"
-                    chunk_url = upload_dir + chunk_name
-
-                    self._put_chunk_with_retry(
-                        chunk_url, chunk_data, final_url, idx, total_chunks
-                    )
-                    progress.advance(len(chunk_data))
+            if parallel <= 1:
+                with open(local, "rb") as f:
+                    for idx in range(1, total_chunks + 1):
+                        chunk_data = f.read(chunk_size)
+                        if not chunk_data:
+                            break
+                        self._put_chunk_with_retry(
+                            upload_dir + f"{idx:08d}", chunk_data,
+                            final_url, idx, total_chunks,
+                        )
+                        progress.advance(len(chunk_data))
+            else:
+                self._upload_chunks_parallel(
+                    local, upload_dir, final_url, chunk_size,
+                    total_chunks, progress, parallel,
+                )
 
             # Phase 3: MOVE the .file pseudo-resource → final location.
             # Nextcloud assembles all chunks server-side; for a large file this
@@ -248,6 +255,35 @@ class WebDAVStorage(BaseStorage):
             raise
 
         return final_url
+
+    def _upload_chunks_parallel(self, local, upload_dir, final_url, chunk_size,
+                               total_chunks, progress, parallel):
+        """Upload chunks concurrently. Each worker reads its own slice of the
+        file (independent handle + seek), so peak memory is bounded by
+        chunk_size * parallel rather than the whole file. The first failure is
+        re-raised to the caller, which cleans up the upload folder."""
+        import concurrent.futures
+        import threading
+
+        plock = threading.Lock()
+
+        def _send(idx: int) -> None:
+            offset = (idx - 1) * chunk_size
+            with open(local, "rb") as fh:
+                fh.seek(offset)
+                data = fh.read(chunk_size)
+            if not data:
+                return
+            self._put_chunk_with_retry(
+                upload_dir + f"{idx:08d}", data, final_url, idx, total_chunks,
+            )
+            with plock:
+                progress.advance(len(data))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as pool:
+            futures = [pool.submit(_send, i) for i in range(1, total_chunks + 1)]
+            for fut in concurrent.futures.as_completed(futures):
+                fut.result()  # re-raise the first chunk failure
 
     def _assemble_timeout(self, size: int):
         """(connect, read) timeout for the final MOVE.
