@@ -33,6 +33,12 @@ class FilesSource:
         self.rename_with_timestamp: bool = bool(
             cfg.get("rename_with_timestamp", False)
         )
+        # If True, keep only the single most-recently-modified matched file.
+        # Used to promote the latest ready archive (e.g. take the newest daily
+        # backup and re-upload it as the weekly/monthly copy) without redoing the
+        # dump/compress. Pair with compression: none so the .tar.zst is passed
+        # through as-is rather than recompressed.
+        self.pick_latest: bool = bool(cfg.get("pick_latest", False))
         self.log = log
         # Remember which files were picked up in the LAST pickup() call,
         # so prefixes() can derive rotation prefixes from real filenames.
@@ -129,6 +135,14 @@ class FilesSource:
             self.log.warning("FilesSource: no files matched patterns: %s",
                              self.paths)
             return []
+
+        if self.pick_latest and len(matched) > 1:
+            newest = max(matched, key=lambda pr: pr[0].stat().st_mtime)
+            self.log.info(
+                "FilesSource: pick_latest → keeping newest of %d matches: %s",
+                len(matched), newest[0].name,
+            )
+            matched = [newest]
 
         timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         total_size = sum(f.stat().st_size for f, _ in matched)
