@@ -209,8 +209,17 @@ class WebDAVStorage(BaseStorage):
             # can take far longer than the normal request timeout, so use a
             # size-scaled read timeout. If it still times out, the assembly may
             # well have finished anyway — verify the destination before failing.
+            # This step is silent from the client's side (no progress is possible
+            # while the server concatenates), so announce it — otherwise a long
+            # assembly looks like a hang after the upload hits 100%.
+            self.log.info(
+                "WebDAV: server assembling %s (%.2f GB) — no client-side progress "
+                "during this step; large files can take several minutes…",
+                local.name, size / (1024 ** 3),
+            )
             self.log.debug("WebDAV chunked: MOVE .file → %s", final_url)
             move_timeout = self._assemble_timeout(size)
+            _assemble_started = time.monotonic()
             try:
                 r = self._session.request(
                     "MOVE",
@@ -242,6 +251,10 @@ class WebDAVStorage(BaseStorage):
                 raise RuntimeError(
                     f"WebDAV chunked: MOVE → {r.status_code} {r.text[:200]}"
                 )
+            self.log.info(
+                "WebDAV: server assembled %s in %.0fs",
+                local.name, time.monotonic() - _assemble_started,
+            )
             progress.done()
         except Exception:
             progress.done(success=False)
