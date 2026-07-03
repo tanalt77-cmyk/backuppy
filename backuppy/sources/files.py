@@ -155,6 +155,9 @@ class FilesSource:
             tar_path = work_dir / tar_name
             self.log.info("  → packing into %s", tar_name)
             skipped = 0
+            from ..progress import Progress
+            prog = Progress("Archiving", total_bytes=total_size,
+                            label=tar_name, log=self.log)
             with tarfile.open(tar_path, "w") as tar:
                 for f, root in matched:
                     try:
@@ -164,10 +167,16 @@ class FilesSource:
                         # Path is not under root (shouldn't happen but be safe)
                         arcname = f.name
                     try:
+                        fsize = f.stat().st_size
+                    except OSError:
+                        fsize = 0
+                    try:
                         tar.add(f, arcname=arcname)
+                        prog.advance(fsize)
                     except OSError as e:
                         self.log.warning("FilesSource: skipped %s: %s", f, e)
                         skipped += 1
+            prog.done()
             if skipped:
                 self.log.warning("FilesSource: %d file(s) skipped due to OS errors", skipped)
             produced = [tar_path]
