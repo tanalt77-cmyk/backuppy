@@ -1,0 +1,457 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Triggers &amp; sources &mdash; backuppy 3.11.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=8905d4f5"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Destinations" href="destinations.html" />
+    <link rel="prev" title="Configuration" href="configuration.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            backuppy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#install-from-pypi-style-source">Install from PyPI-style source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#managing-a-fleet">Managing a fleet</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#directory-layout">Directory layout</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#create-a-model">1. Create a model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#describe-what-to-back-up">2. Describe what to back up</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#check-it">3. Check it</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#run-it">4. Run it</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#schedule-it">5. Schedule it</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#where-to-next">Where to next</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command line</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#run-run-one-or-more-models"><code class="docutils literal notranslate"><span class="pre">run</span></code> — run one or more models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#verify-check-without-moving-data"><code class="docutils literal notranslate"><span class="pre">verify</span></code> — check without moving data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#list-models-show-configured-models"><code class="docutils literal notranslate"><span class="pre">list</span></code> / <code class="docutils literal notranslate"><span class="pre">models</span></code> — show configured models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#usage-storage-usage"><code class="docutils literal notranslate"><span class="pre">usage</span></code> — storage usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#prune-inspect-and-trim-retained-copies"><code class="docutils literal notranslate"><span class="pre">prune</span></code> — inspect and trim retained copies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#new-scaffold-a-model-from-a-template"><code class="docutils literal notranslate"><span class="pre">new</span></code> — scaffold a model from a template</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#notify-manage-test-notifications"><code class="docutils literal notranslate"><span class="pre">notify</span></code> — manage/test notifications</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#migrate-upgrade-configuration-files"><code class="docutils literal notranslate"><span class="pre">migrate</span></code> — upgrade configuration files</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="configuration.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#top-level">Top level</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#logging">Logging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#throttle">Throttle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#verify">Verify</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#includes-extends">Includes / extends</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#see-also">See also</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Triggers &amp; sources</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#sources">Sources</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#files">files</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#fixed-on-disk-names-static-local-name">Fixed on-disk names (<code class="docutils literal notranslate"><span class="pre">static_local_name</span></code>)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#triggers">Triggers</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#mssql">MSSQL</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#postgresql">PostgreSQL</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#mysql-mariadb">MySQL / MariaDB</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#mongodb">MongoDB</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#redis">Redis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#sqlite">SQLite</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#hook-generic-command">hook (generic command)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="destinations.html">Destinations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#local">local</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#webdav">webdav</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#s3-and-s3-compatible">s3 (and S3-compatible)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#sftp">sftp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#dropbox">dropbox</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#gcs-google-cloud-storage">gcs (Google Cloud Storage)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#azure-azure-blob-storage">azure (Azure Blob Storage)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="packaging.html">Packaging</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="packaging.html#compression">Compression</a></li>
+<li class="toctree-l2"><a class="reference internal" href="packaging.html#encryption">Encryption</a></li>
+<li class="toctree-l2"><a class="reference internal" href="packaging.html#splitting">Splitting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="retention.html">Retention &amp; layout</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="retention.html#two-layouts">Two layouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="retention.html#how-rotation-runs">How rotation runs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="retention.html#inspecting-and-pruning-by-hand">Inspecting and pruning by hand</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="notifications.html">Notifications</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="notifications.html#outcomes">Outcomes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notifications.html#the-when-filter">The <code class="docutils literal notranslate"><span class="pre">when</span></code> filter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notifications.html#e-mail">E-mail</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notifications.html#telegram">Telegram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notifications.html#testing-delivery">Testing delivery</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="guides/mssql.html">Backing up SQL Server</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guides/mssql.html#permissions">Permissions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/mssql.html#tls-with-legacy-servers">TLS with legacy servers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/mssql.html#common-errors">Common errors</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guides/promote.html">Weekly / monthly copies (promote)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guides/promote.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/promote.html#staging-space">Staging space</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guides/restore.html">Restoring a backup</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guides/restore.html#fetch-the-artifact">1. Fetch the artifact</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/restore.html#decompress-decrypt">2. Decompress / decrypt</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/restore.html#restore-the-data">3. Restore the data</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="scheduling.html">Scheduling &amp; operations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="scheduling.html#cron-with-a-lock">Cron with a lock</a></li>
+<li class="toctree-l2"><a class="reference internal" href="scheduling.html#log-rotation">Log rotation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="scheduling.html#migrating-older-configs">Migrating older configs</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guides/troubleshooting.html">Troubleshooting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guides/troubleshooting.html#no-space-left-on-device-the-run-did-nothing">“No space left on device” / the run did nothing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/troubleshooting.html#another-backup-is-running-on-this-host-waiting">“another backup is running on this host — waiting…”</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/troubleshooting.html#the-command-line-is-too-long-windows-winrm">The command line is too long (Windows/WinRM)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/troubleshooting.html#filessource-skipped-a-locked-file">FilesSource skipped a locked file</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/troubleshooting.html#a-backup-succeeded-but-i-got-no-e-mail">A backup “succeeded” but I got no e-mail</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Project</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="development.html">Development</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="development.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="development.html#getting-the-source">Getting the source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="development.html#running-the-tests">Running the tests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="development.html#building-the-documentation">Building the documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="development.html#releasing">Releasing</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="changelog.html">Changelog</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="changelog.html#id1">3.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="changelog.html#id2">3.10.9</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">backuppy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Triggers &amp; sources</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/triggers.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="triggers-sources">
+<h1>Triggers &amp; sources<a class="headerlink" href="#triggers-sources" title="Link to this heading"></a></h1>
+<p>A run has two input stages:</p>
+<p><strong>Triggers</strong> produce fresh dumps on disk (database backups). Each trigger writes
+into its <code class="docutils literal notranslate"><span class="pre">output_dir</span></code> (<code class="docutils literal notranslate"><span class="pre">output_dir_windows</span></code> for MSSQL) and its job ends once
+the files are there.</p>
+<p><strong>Sources</strong> collect files that already exist on disk — including the dumps the
+triggers just produced — and hand them to the packaging/upload pipeline.</p>
+<p>A typical database model uses an MSSQL trigger to write <code class="docutils literal notranslate"><span class="pre">.bak</span></code> files, then a
+<code class="docutils literal notranslate"><span class="pre">files</span></code> source to pick them up.</p>
+<section id="sources">
+<h2>Sources<a class="headerlink" href="#sources" title="Link to this heading"></a></h2>
+<section id="files">
+<h3>files<a class="headerlink" href="#files" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">sources</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">files</span>
+<span class="w">    </span><span class="nt">paths</span><span class="p">:</span><span class="w">                       </span><span class="c1"># files/folders; glob patterns allowed</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/app/data</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/mnt/app-sql/*.bak</span>
+<span class="w">    </span><span class="nt">excludes</span><span class="p">:</span><span class="w">                    </span><span class="c1"># exclude patterns</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*/cache/*&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*.tmp&quot;</span>
+<span class="w">    </span><span class="nt">delete_after_pickup</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># remove originals once copied</span>
+<span class="w">    </span><span class="nt">archive_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="w">             </span><span class="c1"># if set, pack all matches into one tar of this name</span>
+</pre></div>
+</div>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">paths</span></code></dt><dd><p>Files or directories to include. Glob patterns are expanded at run time.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">excludes</span></code></dt><dd><p>Patterns to drop from the matched set. Files that Windows holds open (for
+example a 1C planner’s <code class="docutils literal notranslate"><span class="pre">.1CD</span></code> in monopoly mode) are skipped with a
+<code class="docutils literal notranslate"><span class="pre">WARNING</span></code> and the rest of the run continues.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">delete_after_pickup</span></code></dt><dd><p>Delete the originals after they are safely copied into staging — useful to
+clear a spill directory of database dumps.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">archive_name</span></code></dt><dd><p>When set, all matched files are packed into a single <code class="docutils literal notranslate"><span class="pre">tar</span></code> named this,
+instead of being uploaded individually.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">rename_with_timestamp</span></code></dt><dd><p>Insert a <code class="docutils literal notranslate"><span class="pre">YYYYMMDD-HHMMSS</span></code> timestamp into each file name on upload. Pair
+this with a trigger’s <code class="docutils literal notranslate"><span class="pre">static_local_name</span></code> (below): the on-disk dump keeps a
+fixed name (only one fresh copy, no accumulation) while the uploaded history
+stays complete.</p>
+</dd>
+</dl>
+</section>
+<section id="fixed-on-disk-names-static-local-name">
+<span id="static-local-name"></span><h3>Fixed on-disk names (<code class="docutils literal notranslate"><span class="pre">static_local_name</span></code>)<a class="headerlink" href="#fixed-on-disk-names-static-local-name" title="Link to this heading"></a></h3>
+<p>Every database trigger accepts <code class="docutils literal notranslate"><span class="pre">static_local_name:</span> <span class="pre">true</span></code>. When set, the dump
+is written to a <em>fixed</em> filename (<code class="docutils literal notranslate"><span class="pre">&lt;db&gt;-full.bak</span></code>) instead of a timestamped
+one, so each run <strong>overwrites</strong> the previous dump and the staging directory
+never accumulates. Combine with <code class="docutils literal notranslate"><span class="pre">rename_with_timestamp</span></code> on the source to keep
+full history in the cloud:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Trigger</p></th>
+<th class="head"><p>File name with <code class="docutils literal notranslate"><span class="pre">static_local_name:</span> <span class="pre">true</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mssql</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;db&gt;-full.bak</span></code> / <code class="docutils literal notranslate"><span class="pre">&lt;db&gt;-diff.bak</span></code> / <code class="docutils literal notranslate"><span class="pre">&lt;db&gt;-log.trn</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">postgres</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;db&gt;-full.dump</span></code> (or <code class="docutils literal notranslate"><span class="pre">.sql</span></code> / <code class="docutils literal notranslate"><span class="pre">.tar</span></code> per <code class="docutils literal notranslate"><span class="pre">format</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mysql</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;db&gt;-full.sql</span></code> (or <code class="docutils literal notranslate"><span class="pre">all-databases-full.sql</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mongodb</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;db&gt;-full.tar</span></code> (or <code class="docutils literal notranslate"><span class="pre">alldbs-full.tar</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">redis</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">redis-full.rdb</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sqlite</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;dbname&gt;-full.sqlite</span></code></p></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>When the archive being collected is already a finished <code class="docutils literal notranslate"><span class="pre">.tar</span></code>/<code class="docutils literal notranslate"><span class="pre">.tar.zst</span></code>
+(weekly/monthly <em>promote</em> models), the file is passed through as-is — no
+re-compression. See <a class="reference internal" href="guides/promote.html"><span class="doc">Weekly / monthly copies (promote)</span></a>.</p>
+</div>
+</section>
+</section>
+<section id="triggers">
+<h2>Triggers<a class="headerlink" href="#triggers" title="Link to this heading"></a></h2>
+<p>All database triggers share the idea of an <strong>output directory</strong>; the <code class="docutils literal notranslate"><span class="pre">files</span></code>
+source then picks the dumps up from there.</p>
+<section id="mssql">
+<h3>MSSQL<a class="headerlink" href="#mssql" title="Link to this heading"></a></h3>
+<p>Connects to SQL Server over TCP and runs <code class="docutils literal notranslate"><span class="pre">BACKUP</span> <span class="pre">DATABASE</span></code> for each listed
+database. The <code class="docutils literal notranslate"><span class="pre">.bak</span></code> files land in <code class="docutils literal notranslate"><span class="pre">output_dir_windows</span></code> on the SQL host.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">triggers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mssql</span>
+<span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0.0.5</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1433</span>
+<span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">backup_user</span>
+<span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SECRET</span>
+<span class="w">    </span><span class="nt">output_dir_windows</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;D:\\archive_sql&quot;</span>
+<span class="w">    </span><span class="nt">databases</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">AppDB</span><span class="p p-Indicator">,</span><span class="nt">   backup_type</span><span class="p">:</span><span class="w"> </span><span class="nv">FULL</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">OtherDB</span><span class="p p-Indicator">,</span><span class="nt"> backup_type</span><span class="p">:</span><span class="w"> </span><span class="nv">DIFFERENTIAL</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">compression</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">              </span><span class="c1"># WITH COMPRESSION (unsupported on Express)</span>
+<span class="w">    </span><span class="nt">checksum</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                 </span><span class="c1"># WITH CHECKSUM</span>
+<span class="w">    </span><span class="nt">copy_only</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">               </span><span class="c1"># WITH COPY_ONLY</span>
+<span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7200</span>
+<span class="w">    </span><span class="nt">encrypt_connection</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">       </span><span class="c1"># Encrypt=yes</span>
+<span class="w">    </span><span class="nt">trust_server_certificate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># accept the server cert (legacy servers)</span>
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>SQL Server <strong>Express</strong> does not support <code class="docutils literal notranslate"><span class="pre">WITH</span> <span class="pre">COMPRESSION</span></code> — set
+<code class="docutils literal notranslate"><span class="pre">compression:</span> <span class="pre">false</span></code> for Express instances or the backup fails with
+error 1844. See <a class="reference internal" href="guides/mssql.html"><span class="doc">Backing up SQL Server</span></a> for permissions and TLS notes.</p>
+</div>
+</section>
+<section id="postgresql">
+<h3>PostgreSQL<a class="headerlink" href="#postgresql" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">triggers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgres</span>
+<span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5432</span>
+<span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgres</span>
+<span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SECRET</span>
+<span class="w">    </span><span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/spool/backuppy/pg</span>
+<span class="w">    </span><span class="nt">databases</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">appdb</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">otherdb</span><span class="p p-Indicator">]</span><span class="w">    </span><span class="c1"># empty = all non-template databases</span>
+<span class="w">    </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">custom</span><span class="w">                 </span><span class="c1"># custom | plain | tar (pg_dump -F)</span>
+<span class="w">    </span><span class="nt">static_local_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">pg_dump_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pg_dump</span><span class="w">          </span><span class="c1"># override if multiple client versions</span>
+<span class="w">    </span><span class="nt">pg_dumpall_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pg_dumpall</span>
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">pg_dump</span></code> must be <strong>the same version or newer</strong> than the PostgreSQL server,
+or it aborts with <em>“server version mismatch”</em>. On Debian 12 (client 15)
+against a 16/17 server, install a newer client from the PGDG apt repo and
+point <code class="docutils literal notranslate"><span class="pre">pg_dump_path</span></code> / <code class="docutils literal notranslate"><span class="pre">pg_dumpall_path</span></code> at, e.g.,
+<code class="docutils literal notranslate"><span class="pre">/usr/lib/postgresql/17/bin/pg_dump</span></code>.</p>
+</div>
+</section>
+<section id="mysql-mariadb">
+<h3>MySQL / MariaDB<a class="headerlink" href="#mysql-mariadb" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">triggers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mysql</span>
+<span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3306</span>
+<span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">root</span>
+<span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SECRET</span>
+<span class="w">    </span><span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/spool/backuppy/mysql</span>
+<span class="w">    </span><span class="nt">databases</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">appdb</span><span class="p p-Indicator">]</span><span class="w">             </span><span class="c1"># empty = all databases</span>
+<span class="w">    </span><span class="nt">single_transaction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">       </span><span class="c1"># consistent dump of InnoDB without locking</span>
+<span class="w">    </span><span class="nt">static_local_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+</section>
+<section id="mongodb">
+<h3>MongoDB<a class="headerlink" href="#mongodb" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">triggers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb</span>
+<span class="w">    </span><span class="nt">uri</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;mongodb://127.0.0.1:27017&quot;</span>
+<span class="w">    </span><span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/spool/backuppy/mongo</span>
+<span class="w">    </span><span class="nt">databases</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">appdb</span><span class="p p-Indicator">]</span><span class="w">             </span><span class="c1"># empty = all; one tar per database</span>
+<span class="w">    </span><span class="nt">gzip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                     </span><span class="c1"># mongodump --gzip</span>
+<span class="w">    </span><span class="nt">oplog</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                   </span><span class="c1"># mongodump --oplog (point-in-time)</span>
+<span class="w">    </span><span class="nt">static_local_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+</section>
+<section id="redis">
+<h3>Redis<a class="headerlink" href="#redis" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">triggers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis</span>
+<span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6379</span>
+<span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<span class="w">    </span><span class="nt">rdb_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/lib/redis/dump.rdb</span><span class="w">   </span><span class="c1"># where BGSAVE writes the RDB</span>
+<span class="w">    </span><span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/spool/backuppy/redis</span>
+<span class="w">    </span><span class="nt">static_local_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+</section>
+<section id="sqlite">
+<h3>SQLite<a class="headerlink" href="#sqlite" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">triggers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sqlite</span>
+<span class="w">    </span><span class="nt">paths</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">/srv/app/app.db</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/spool/backuppy/sqlite</span>
+</pre></div>
+</div>
+<p>Uses SQLite’s online backup API, so the database can stay in use during the dump.</p>
+</section>
+<section id="hook-generic-command">
+<h3>hook (generic command)<a class="headerlink" href="#hook-generic-command" title="Link to this heading"></a></h3>
+<p>Run any command that produces files; you are trusted to write them where the
+source will find them.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">triggers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hook</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;/usr/local/bin/dump-something&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;--out&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;/tmp/staging&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/tmp/staging</span><span class="w">     </span><span class="c1"># informational; not enforced</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="configuration.html" class="btn btn-neutral float-left" title="Configuration" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="destinations.html" class="btn btn-neutral float-right" title="Destinations" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, backuppy contributors.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

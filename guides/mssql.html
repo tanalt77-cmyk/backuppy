@@ -1,0 +1,318 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Backing up SQL Server &mdash; backuppy 3.11.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=8905d4f5"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Weekly / monthly copies (promote)" href="promote.html" />
+    <link rel="prev" title="Hooks" href="../hooks.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            backuppy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#install-from-pypi-style-source">Install from PyPI-style source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#managing-a-fleet">Managing a fleet</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#directory-layout">Directory layout</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick start</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#create-a-model">1. Create a model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#describe-what-to-back-up">2. Describe what to back up</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#check-it">3. Check it</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#run-it">4. Run it</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#schedule-it">5. Schedule it</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#where-to-next">Where to next</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command line</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../cli.html#run-run-one-or-more-models"><code class="docutils literal notranslate"><span class="pre">run</span></code> — run one or more models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli.html#verify-check-without-moving-data"><code class="docutils literal notranslate"><span class="pre">verify</span></code> — check without moving data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli.html#list-models-show-configured-models"><code class="docutils literal notranslate"><span class="pre">list</span></code> / <code class="docutils literal notranslate"><span class="pre">models</span></code> — show configured models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli.html#usage-storage-usage"><code class="docutils literal notranslate"><span class="pre">usage</span></code> — storage usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli.html#prune-inspect-and-trim-retained-copies"><code class="docutils literal notranslate"><span class="pre">prune</span></code> — inspect and trim retained copies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli.html#new-scaffold-a-model-from-a-template"><code class="docutils literal notranslate"><span class="pre">new</span></code> — scaffold a model from a template</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli.html#notify-manage-test-notifications"><code class="docutils literal notranslate"><span class="pre">notify</span></code> — manage/test notifications</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli.html#migrate-upgrade-configuration-files"><code class="docutils literal notranslate"><span class="pre">migrate</span></code> — upgrade configuration files</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#top-level">Top level</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#logging">Logging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#throttle">Throttle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#verify">Verify</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#includes-extends">Includes / extends</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#see-also">See also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../triggers.html">Triggers &amp; sources</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../triggers.html#sources">Sources</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../triggers.html#files">files</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../triggers.html#fixed-on-disk-names-static-local-name">Fixed on-disk names (<code class="docutils literal notranslate"><span class="pre">static_local_name</span></code>)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../triggers.html#triggers">Triggers</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../triggers.html#mssql">MSSQL</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../triggers.html#postgresql">PostgreSQL</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../triggers.html#mysql-mariadb">MySQL / MariaDB</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../triggers.html#mongodb">MongoDB</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../triggers.html#redis">Redis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../triggers.html#sqlite">SQLite</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../triggers.html#hook-generic-command">hook (generic command)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../destinations.html">Destinations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../destinations.html#local">local</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../destinations.html#webdav">webdav</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../destinations.html#s3-and-s3-compatible">s3 (and S3-compatible)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../destinations.html#sftp">sftp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../destinations.html#dropbox">dropbox</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../destinations.html#gcs-google-cloud-storage">gcs (Google Cloud Storage)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../destinations.html#azure-azure-blob-storage">azure (Azure Blob Storage)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../packaging.html">Packaging</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../packaging.html#compression">Compression</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../packaging.html#encryption">Encryption</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../packaging.html#splitting">Splitting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../retention.html">Retention &amp; layout</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../retention.html#two-layouts">Two layouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../retention.html#how-rotation-runs">How rotation runs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../retention.html#inspecting-and-pruning-by-hand">Inspecting and pruning by hand</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../notifications.html">Notifications</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../notifications.html#outcomes">Outcomes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../notifications.html#the-when-filter">The <code class="docutils literal notranslate"><span class="pre">when</span></code> filter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../notifications.html#e-mail">E-mail</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../notifications.html#telegram">Telegram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../notifications.html#testing-delivery">Testing delivery</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../hooks.html">Hooks</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Backing up SQL Server</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#permissions">Permissions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tls-with-legacy-servers">TLS with legacy servers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#common-errors">Common errors</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="promote.html">Weekly / monthly copies (promote)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="promote.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="promote.html#staging-space">Staging space</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="restore.html">Restoring a backup</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="restore.html#fetch-the-artifact">1. Fetch the artifact</a></li>
+<li class="toctree-l2"><a class="reference internal" href="restore.html#decompress-decrypt">2. Decompress / decrypt</a></li>
+<li class="toctree-l2"><a class="reference internal" href="restore.html#restore-the-data">3. Restore the data</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../scheduling.html">Scheduling &amp; operations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../scheduling.html#cron-with-a-lock">Cron with a lock</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../scheduling.html#log-rotation">Log rotation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../scheduling.html#migrating-older-configs">Migrating older configs</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#no-space-left-on-device-the-run-did-nothing">“No space left on device” / the run did nothing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#another-backup-is-running-on-this-host-waiting">“another backup is running on this host — waiting…”</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#the-command-line-is-too-long-windows-winrm">The command line is too long (Windows/WinRM)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#filessource-skipped-a-locked-file">FilesSource skipped a locked file</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#a-backup-succeeded-but-i-got-no-e-mail">A backup “succeeded” but I got no e-mail</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Project</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../development.html">Development</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../development.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development.html#getting-the-source">Getting the source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development.html#running-the-tests">Running the tests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development.html#building-the-documentation">Building the documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development.html#releasing">Releasing</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../changelog.html">Changelog</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../changelog.html#id1">3.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../changelog.html#id2">3.10.9</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">backuppy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Backing up SQL Server</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/guides/mssql.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="backing-up-sql-server">
+<h1>Backing up SQL Server<a class="headerlink" href="#backing-up-sql-server" title="Link to this heading"></a></h1>
+<p>A SQL Server model has two parts: an <strong>mssql trigger</strong> that runs
+<code class="docutils literal notranslate"><span class="pre">BACKUP</span> <span class="pre">DATABASE</span></code> into a folder on the Windows host, and a <strong>files source</strong>
+that picks the resulting <code class="docutils literal notranslate"><span class="pre">.bak</span></code> files up (usually over an SMB share mounted on
+the agent).</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">appdb</span>
+
+<span class="nt">triggers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mssql</span>
+<span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.10.111.100</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1433</span>
+<span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sa</span>
+<span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SECRET</span>
+<span class="w">    </span><span class="nt">output_dir_windows</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;D:\\archive_sql&quot;</span>
+<span class="w">    </span><span class="nt">databases</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">AppDB</span><span class="p p-Indicator">,</span><span class="nt"> backup_type</span><span class="p">:</span><span class="w"> </span><span class="nv">FULL</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">compression</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">            </span><span class="c1"># Express does NOT support WITH COMPRESSION</span>
+<span class="w">    </span><span class="nt">encrypt_connection</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">trust_server_certificate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">sources</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">files</span>
+<span class="w">    </span><span class="nt">paths</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/mnt/appdb-sql/*.bak</span><span class="w">      </span><span class="c1"># the SMB mount of D:\archive_sql</span>
+
+<span class="nt">compression</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> method</span><span class="p">:</span><span class="w"> </span><span class="nv">zstd</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="nt">s3</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> bucket</span><span class="p">:</span><span class="w"> </span><span class="nv">my-bucket</span><span class="p p-Indicator">,</span><span class="nt"> keep_last</span><span class="p">:</span><span class="w"> </span><span class="nv">30</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<section id="permissions">
+<h2>Permissions<a class="headerlink" href="#permissions" title="Link to this heading"></a></h2>
+<p>The SQL Server <strong>service account</strong> — not the share user — is what actually
+writes the <code class="docutils literal notranslate"><span class="pre">.bak</span></code> file, so it needs <em>Modify</em> on <code class="docutils literal notranslate"><span class="pre">output_dir_windows</span></code>. When
+agents are managed by the portal this grant is applied automatically at deploy
+time (the portal detects the SQL service by its <code class="docutils literal notranslate"><span class="pre">sqlservr.exe</span></code> binary and
+grants the service SID, which covers virtual accounts such as
+<code class="docutils literal notranslate"><span class="pre">NT</span> <span class="pre">SERVICE\MSSQL$INSTANCE</span></code>). Granting the <em>share</em> user alone is <strong>not</strong>
+enough and yields <code class="docutils literal notranslate"><span class="pre">BACKUP</span> <span class="pre">...</span> <span class="pre">error</span> <span class="pre">3201</span> <span class="pre">/</span> <span class="pre">OS</span> <span class="pre">error</span> <span class="pre">5</span> <span class="pre">(Access</span> <span class="pre">denied)</span></code>.</p>
+</section>
+<section id="tls-with-legacy-servers">
+<h2>TLS with legacy servers<a class="headerlink" href="#tls-with-legacy-servers" title="Link to this heading"></a></h2>
+<p>Modern ODBC drivers require TLS for the login packet even with
+<code class="docutils literal notranslate"><span class="pre">Encrypt=no</span></code>. Old SQL Server builds present certificates signed with legacy
+algorithms, which the driver rejects (<code class="docutils literal notranslate"><span class="pre">SSL:</span> <span class="pre">sslv3</span> <span class="pre">alert</span></code> / legacy sigalg). Set
+<code class="docutils literal notranslate"><span class="pre">trust_server_certificate:</span> <span class="pre">true</span></code>; the portal additionally stages an OpenSSL
+<code class="docutils literal notranslate"><span class="pre">SECLEVEL=0</span></code> config per-model when it detects this failure.</p>
+</section>
+<section id="common-errors">
+<h2>Common errors<a class="headerlink" href="#common-errors" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Symptom</p></th>
+<th class="head"><p>Cause / fix</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">1844</span> <span class="pre">WITH</span> <span class="pre">COMPRESSION</span> <span class="pre">not</span> <span class="pre">supported</span></code></p></td>
+<td><p>Express edition — set <code class="docutils literal notranslate"><span class="pre">compression:</span> <span class="pre">false</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">3201</span> <span class="pre">/</span> <span class="pre">Access</span> <span class="pre">denied</span></code></p></td>
+<td><p>SQL service account lacks <em>Modify</em> on the output dir (see <em>Permissions</em>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">FilesSource:</span> <span class="pre">no</span> <span class="pre">files</span> <span class="pre">matched</span></code></p></td>
+<td><p>The source glob points at a different folder than <code class="docutils literal notranslate"><span class="pre">output_dir_windows</span></code>
+— make the mounted share and the output dir agree.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../hooks.html" class="btn btn-neutral float-left" title="Hooks" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="promote.html" class="btn btn-neutral float-right" title="Weekly / monthly copies (promote)" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, backuppy contributors.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

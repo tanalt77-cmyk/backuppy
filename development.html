@@ -1,0 +1,292 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Development &mdash; backuppy 3.11.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=8905d4f5"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Changelog" href="changelog.html" />
+    <link rel="prev" title="Troubleshooting" href="guides/troubleshooting.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            backuppy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#install-from-pypi-style-source">Install from PyPI-style source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#managing-a-fleet">Managing a fleet</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#directory-layout">Directory layout</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#create-a-model">1. Create a model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#describe-what-to-back-up">2. Describe what to back up</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#check-it">3. Check it</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#run-it">4. Run it</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#schedule-it">5. Schedule it</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#where-to-next">Where to next</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command line</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#run-run-one-or-more-models"><code class="docutils literal notranslate"><span class="pre">run</span></code> — run one or more models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#verify-check-without-moving-data"><code class="docutils literal notranslate"><span class="pre">verify</span></code> — check without moving data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#list-models-show-configured-models"><code class="docutils literal notranslate"><span class="pre">list</span></code> / <code class="docutils literal notranslate"><span class="pre">models</span></code> — show configured models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#usage-storage-usage"><code class="docutils literal notranslate"><span class="pre">usage</span></code> — storage usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#prune-inspect-and-trim-retained-copies"><code class="docutils literal notranslate"><span class="pre">prune</span></code> — inspect and trim retained copies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#new-scaffold-a-model-from-a-template"><code class="docutils literal notranslate"><span class="pre">new</span></code> — scaffold a model from a template</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#notify-manage-test-notifications"><code class="docutils literal notranslate"><span class="pre">notify</span></code> — manage/test notifications</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#migrate-upgrade-configuration-files"><code class="docutils literal notranslate"><span class="pre">migrate</span></code> — upgrade configuration files</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="configuration.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#top-level">Top level</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#logging">Logging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#throttle">Throttle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#verify">Verify</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#includes-extends">Includes / extends</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#see-also">See also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="triggers.html">Triggers &amp; sources</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="triggers.html#sources">Sources</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="triggers.html#files">files</a></li>
+<li class="toctree-l3"><a class="reference internal" href="triggers.html#fixed-on-disk-names-static-local-name">Fixed on-disk names (<code class="docutils literal notranslate"><span class="pre">static_local_name</span></code>)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="triggers.html#triggers">Triggers</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="triggers.html#mssql">MSSQL</a></li>
+<li class="toctree-l3"><a class="reference internal" href="triggers.html#postgresql">PostgreSQL</a></li>
+<li class="toctree-l3"><a class="reference internal" href="triggers.html#mysql-mariadb">MySQL / MariaDB</a></li>
+<li class="toctree-l3"><a class="reference internal" href="triggers.html#mongodb">MongoDB</a></li>
+<li class="toctree-l3"><a class="reference internal" href="triggers.html#redis">Redis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="triggers.html#sqlite">SQLite</a></li>
+<li class="toctree-l3"><a class="reference internal" href="triggers.html#hook-generic-command">hook (generic command)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="destinations.html">Destinations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#local">local</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#webdav">webdav</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#s3-and-s3-compatible">s3 (and S3-compatible)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#sftp">sftp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#dropbox">dropbox</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#gcs-google-cloud-storage">gcs (Google Cloud Storage)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="destinations.html#azure-azure-blob-storage">azure (Azure Blob Storage)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="packaging.html">Packaging</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="packaging.html#compression">Compression</a></li>
+<li class="toctree-l2"><a class="reference internal" href="packaging.html#encryption">Encryption</a></li>
+<li class="toctree-l2"><a class="reference internal" href="packaging.html#splitting">Splitting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="retention.html">Retention &amp; layout</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="retention.html#two-layouts">Two layouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="retention.html#how-rotation-runs">How rotation runs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="retention.html#inspecting-and-pruning-by-hand">Inspecting and pruning by hand</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="notifications.html">Notifications</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="notifications.html#outcomes">Outcomes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notifications.html#the-when-filter">The <code class="docutils literal notranslate"><span class="pre">when</span></code> filter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notifications.html#e-mail">E-mail</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notifications.html#telegram">Telegram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="notifications.html#testing-delivery">Testing delivery</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="guides/mssql.html">Backing up SQL Server</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guides/mssql.html#permissions">Permissions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/mssql.html#tls-with-legacy-servers">TLS with legacy servers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/mssql.html#common-errors">Common errors</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guides/promote.html">Weekly / monthly copies (promote)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guides/promote.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/promote.html#staging-space">Staging space</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guides/restore.html">Restoring a backup</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guides/restore.html#fetch-the-artifact">1. Fetch the artifact</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/restore.html#decompress-decrypt">2. Decompress / decrypt</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/restore.html#restore-the-data">3. Restore the data</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="scheduling.html">Scheduling &amp; operations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="scheduling.html#cron-with-a-lock">Cron with a lock</a></li>
+<li class="toctree-l2"><a class="reference internal" href="scheduling.html#log-rotation">Log rotation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="scheduling.html#migrating-older-configs">Migrating older configs</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guides/troubleshooting.html">Troubleshooting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guides/troubleshooting.html#no-space-left-on-device-the-run-did-nothing">“No space left on device” / the run did nothing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/troubleshooting.html#another-backup-is-running-on-this-host-waiting">“another backup is running on this host — waiting…”</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/troubleshooting.html#the-command-line-is-too-long-windows-winrm">The command line is too long (Windows/WinRM)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/troubleshooting.html#filessource-skipped-a-locked-file">FilesSource skipped a locked file</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guides/troubleshooting.html#a-backup-succeeded-but-i-got-no-e-mail">A backup “succeeded” but I got no e-mail</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Project</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Development</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#getting-the-source">Getting the source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#running-the-tests">Running the tests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#building-the-documentation">Building the documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#releasing">Releasing</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="changelog.html">Changelog</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="changelog.html#id1">3.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="changelog.html#id2">3.10.9</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">backuppy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Development</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/development.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="development">
+<h1>Development<a class="headerlink" href="#development" title="Link to this heading"></a></h1>
+<section id="requirements">
+<h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Python 3.10+</p></li>
+<li><p>A POSIX shell; the reference platform is Debian/Ubuntu.</p></li>
+</ul>
+</section>
+<section id="getting-the-source">
+<h2>Getting the source<a class="headerlink" href="#getting-the-source" title="Link to this heading"></a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">git</span> <span class="n">clone</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">tanalt77</span><span class="o">-</span><span class="n">cmyk</span><span class="o">/</span><span class="n">backuppy</span><span class="o">.</span><span class="n">git</span>
+<span class="n">cd</span> <span class="n">backuppy</span>
+<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">venv</span> <span class="o">.</span><span class="n">venv</span> <span class="o">&amp;&amp;</span> <span class="o">.</span> <span class="o">.</span><span class="n">venv</span><span class="o">/</span><span class="nb">bin</span><span class="o">/</span><span class="n">activate</span>
+<span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">e</span> <span class="o">.</span>
+</pre></div>
+</div>
+</section>
+<section id="running-the-tests">
+<h2>Running the tests<a class="headerlink" href="#running-the-tests" title="Link to this heading"></a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">pytest</span>
+<span class="n">pytest</span> <span class="o">-</span><span class="n">q</span>
+</pre></div>
+</div>
+</section>
+<section id="building-the-documentation">
+<h2>Building the documentation<a class="headerlink" href="#building-the-documentation" title="Link to this heading"></a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">sphinx</span> <span class="n">sphinx_rtd_theme</span>
+<span class="n">sphinx</span><span class="o">-</span><span class="n">build</span> <span class="o">-</span><span class="n">b</span> <span class="n">html</span> <span class="n">docs</span> <span class="n">docs</span><span class="o">/</span><span class="n">_build</span><span class="o">/</span><span class="n">html</span>
+<span class="c1"># open docs/_build/html/index.html</span>
+</pre></div>
+</div>
+<p>On Read the Docs the build is driven by <code class="docutils literal notranslate"><span class="pre">.readthedocs.yaml</span></code> at the repository
+root, which points at <code class="docutils literal notranslate"><span class="pre">docs/conf.py</span></code>.</p>
+</section>
+<section id="releasing">
+<h2>Releasing<a class="headerlink" href="#releasing" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p>Update the version in <strong>both</strong> <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> and
+<code class="docutils literal notranslate"><span class="pre">backuppy/__init__.py</span></code> (they must match — the CLI reports
+<code class="docutils literal notranslate"><span class="pre">backuppy/__init__.py</span></code> and packaging uses <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>).</p></li>
+<li><p>Add an entry to <a class="reference internal" href="changelog.html"><span class="doc">Changelog</span></a>.</p></li>
+<li><p>Commit and push to <code class="docutils literal notranslate"><span class="pre">main</span></code>.</p></li>
+<li><p>Roll out to agents with the portal’s <strong>“Update backuppy on all agents”</strong>
+action, which <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code>s <code class="docutils literal notranslate"><span class="pre">git+…&#64;main</span></code> on every host and reports the
+before/after version.</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="guides/troubleshooting.html" class="btn btn-neutral float-left" title="Troubleshooting" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="changelog.html" class="btn btn-neutral float-right" title="Changelog" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, backuppy contributors.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
