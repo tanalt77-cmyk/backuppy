@@ -1,0 +1,40 @@
+--- backuppy/core.py
++++ backuppy/core.py
+@@ -355,9 +355,34 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
+                 artifacts.extend(s.pickup(work, cfg.name))
+ 
+             if not artifacts:
+-                log.warning("No artifacts produced — nothing to upload.")
+-                # fall through — notify will fire as 'warning' due to the
+-                # collected warning above
++                # A run that uploaded NOTHING has failed — "backed up nothing"
++                # is not a success-with-warning. Raise so the failure path fires
++                # (non-zero exit + 'failure' notification), instead of silently
++                # finishing as Done. This is what makes disk-full / all-sources-
++                # skipped runs actually page the operator.
++                _joined = "; ".join(warn_collector.messages)
++                if "Errno 28" in _joined or "No space left" in _joined:
++                    _why = ("No space left on device while staging the backup. "
++                            "The temp/staging directory is too small — point "
++                            "tmp_dir at a bigger disk, or enable 'temporary files "
++                            "on the model's SMB share'.")
++                elif _joined:
++                    _why = f"All sources were skipped: {_joined}"
++                else:
++                    _why = "No source matched any files."
++                raise RuntimeError(
++                    f"No artifacts produced — nothing to upload. {_why}")
++
++            # Even if SOME artifacts were produced, a disk-full during pickup
++            # means the set is incomplete — fail rather than silently reporting
++            # partial success (a half-done backup is worse than a known failure).
++            _disk = "; ".join(m for m in warn_collector.messages
++                              if "Errno 28" in m or "No space left" in m)
++            if _disk:
++                raise RuntimeError(
++                    "Backup incomplete — no space left on device during "
++                    f"staging: {_disk}. Point tmp_dir at a bigger disk or "
++                    "enable 'temporary files on the model's SMB share'.")
+ 
+             # 3. Process each artifact
+             for art in artifacts:

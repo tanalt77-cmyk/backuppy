@@ -7,6 +7,18 @@ GCS, or Azure Blob.
 
 Tested on Debian 12. Should work on any Linux with Python 3.11+.
 
+> **📖 Full documentation:** a complete manual (installation, CLI, the entire
+> YAML schema, triggers, destinations, packaging, retention, notifications,
+> guides and troubleshooting) is built with Sphinx under [`docs/`](docs/) and
+> renders as a Read-the-Docs site. Build it locally with
+> `pip install sphinx sphinx_rtd_theme && sphinx-build -b html docs docs/_build/html`.
+
+> **ℹ️ 3.11.0:** a run that produces **no artifacts** — every source skipped, or
+> staging out of disk — is now a **failure** (non-zero exit + failure
+> notification), never a silent "success with warnings". A disk-full during
+> staging fails the run even if some artifacts uploaded. See the
+> [changelog](docs/changelog.rst).
+
 ## Architecture
 
 Each YAML file in `/etc/backuppy/` is a **model** — one independent backup
@@ -668,6 +680,10 @@ telegram:
 ```
 
 `on_issue` = warning OR failure. `on_warning` = only warnings.
+
+> **Note (3.11.0):** "produced nothing to upload" and disk-full are classified
+> as **failure**, so they notify even on the default `when: on_failure`. A
+> backup that backs up nothing can no longer pass silently.
 
 Interactive setup:
 
