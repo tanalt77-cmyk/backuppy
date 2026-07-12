@@ -2,8 +2,16 @@
 from __future__ import annotations
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
+
+# Run subdirectories are named strftime("%Y%m%d-%H%M%S"). Rotation must only
+# ever consider directories matching this shape — stray folders left by other
+# tooling (or older layouts) must never be counted as run dirs, otherwise a
+# lexicographic sort can push the *current* run dir past keep_last and delete
+# the archive we just wrote.
+RUN_DIR_RE = re.compile(r"^\d{8}-\d{6}$")
 
 
 class BaseStorage(ABC):
@@ -80,7 +88,9 @@ class BaseStorage(ABC):
         for f in self.list_files():
             name = f["name"]
             if "/" in name:
-                seen.add(name.split("/", 1)[0])
+                top = name.split("/", 1)[0]
+                if RUN_DIR_RE.match(top):
+                    seen.add(top)
         return sorted(seen)
 
     def delete_run_dir(self, dir_name: str, log: logging.Logger) -> None:

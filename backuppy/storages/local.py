@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 from ..config import LocalCfg
-from .base import BaseStorage
+from .base import BaseStorage, RUN_DIR_RE
 
 
 class LocalStorage(BaseStorage):
@@ -59,10 +59,18 @@ class LocalStorage(BaseStorage):
         return out
 
     def list_run_dirs(self) -> list[str]:
-        """Run subdirectories at top level of dest_dir."""
+        """Run subdirectories at top level of dest_dir.
+
+        Only timestamp-named dirs (YYYYMMDD-HHMMSS) count — stray folders left
+        by other tooling must not be treated as run dirs, or rotation could
+        delete the current run's archive.
+        """
         if not self.dest_dir.exists():
             return []
-        return sorted(p.name for p in self.dest_dir.iterdir() if p.is_dir())
+        return sorted(
+            p.name for p in self.dest_dir.iterdir()
+            if p.is_dir() and RUN_DIR_RE.match(p.name)
+        )
 
     def delete_run_dir(self, dir_name: str, log: logging.Logger) -> None:
         target = self.dest_dir / dir_name
