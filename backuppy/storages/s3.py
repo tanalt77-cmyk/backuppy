@@ -31,7 +31,7 @@ class S3Storage(BaseStorage):
         kwargs = {
             "region_name": self.cfg.region,
             "config": BotoConfig(
-                retries={"max_attempts": 5, "mode": "standard"},
+                retries={"max_attempts": self.cfg.max_retries, "mode": "adaptive"},
                 signature_version="s3v4",
             ),
         }
@@ -76,6 +76,7 @@ class S3Storage(BaseStorage):
         transfer = TransferConfig(
             multipart_threshold=self.cfg.multipart_threshold_mb * 1024 * 1024,
             multipart_chunksize=self.cfg.multipart_chunksize_mb * 1024 * 1024,
+            max_concurrency=max(1, self.cfg.max_concurrency),
             use_threads=True,
         )
 
