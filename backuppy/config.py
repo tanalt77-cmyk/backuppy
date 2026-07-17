@@ -150,7 +150,7 @@ class S3Cfg:
     multipart_threshold_mb: int = 64
     multipart_chunksize_mb: int = 16
     max_concurrency: int = 16       # parallel multipart parts (1 stream ≈ 10 MB/s)
-    max_retries: int = 10           # per-request attempts (adaptive backoff)
+    max_retries: int = 15           # per-request attempts (adaptive backoff)
 
 
 @dataclass

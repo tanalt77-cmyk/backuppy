@@ -10,6 +10,56 @@ from ..config import S3Cfg
 from .base import BaseStorage
 
 
+class _RetryLogHandler(logging.Handler):
+    """Forward boto3's own retry decisions into the engine log.
+
+    boto3 retries transient S3 errors (InternalError, ServiceUnavailable,
+    SlowDown, 500/503) silently; on a normal run nothing is printed, and on a
+    failed one only the final exception shows — so a stalled upload looks like it
+    "failed without retrying". This handler elevates each retry decision to a
+    visible WARNING in the backup log, so the log shows every attempt (e.g.
+    "S3 retry: Retry needed, retrying request after delay of 8.0s").
+    """
+
+    def __init__(self, target: logging.Logger):
+        super().__init__(level=logging.DEBUG)
+        self._t = target
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001
+            return
+        low = msg.lower().lstrip()
+        # A real retry line STARTS WITH "retry needed" (both standard and legacy
+        # modes). Matching the start avoids the "No retry needed." /
+        # "Not retrying request." false positives that a substring match hits.
+        # "quota reached" is logged too — it's boto3 giving up at its ceiling.
+        if low.startswith("retry needed") or "quota reached" in low:
+            self._t.warning("S3 retry: %s", msg)
+
+
+_RETRY_LOG_INSTALLED = False
+
+
+def _install_retry_logging(target: logging.Logger) -> None:
+    """Attach the retry-logging handler to botocore's retry loggers (once)."""
+    global _RETRY_LOG_INSTALLED
+    if _RETRY_LOG_INSTALLED:
+        return
+    handler = _RetryLogHandler(target)
+    for name in (
+        "botocore.retryhandler",
+        "botocore.retries.standard",
+        "botocore.retries.adaptive",
+    ):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.DEBUG)
+        lg.addHandler(handler)
+        lg.propagate = False  # keep DEBUG out of the root logger; we capture it here
+    _RETRY_LOG_INSTALLED = True
+
+
 class S3Storage(BaseStorage):
     name = "s3"
 
@@ -46,6 +96,7 @@ class S3Storage(BaseStorage):
                 self.log.debug("S3: normalized endpoint to %s", endpoint)
             kwargs["endpoint_url"] = endpoint
 
+        _install_retry_logging(self.log)
         self._client = boto3.client("s3", **kwargs)
         return self._client
 
