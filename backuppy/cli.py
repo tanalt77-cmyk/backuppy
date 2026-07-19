@@ -523,14 +523,42 @@ def main() -> int:
             if multi:
                 log.info("###### Model: %s (%s) ######", cfg.name, cfg_path.name)
 
-            if args.command == "run":
-                rc = cmd_run(cfg, log, args.dry_run)
-            elif args.command == "list":
-                rc = cmd_list(cfg, log)
-            elif args.command == "verify":
-                rc = cmd_verify(cfg, log)
-            else:
-                rc = 2
+            try:
+                if args.command == "run":
+                    rc = cmd_run(cfg, log, args.dry_run)
+                elif args.command == "list":
+                    rc = cmd_list(cfg, log)
+                elif args.command == "verify":
+                    rc = cmd_verify(cfg, log)
+                else:
+                    rc = 2
+            except Exception as e:  # noqa: BLE001
+                # cmd_run notifies for failures raised AFTER its setup, but very
+                # early ones — a dead CIFS local dest failing in build_local, a
+                # full disk in tmp_dir mkdir, a bad config — escape it and would
+                # otherwise crash silently with no email. Guarantee an operator
+                # notification here for any unhandled failure (run only).
+                import traceback as _tb
+                import socket as _sock
+                try:
+                    from .core import _humanize_error
+                    summary = _humanize_error(e)
+                except Exception:  # noqa: BLE001
+                    summary = f"{type(e).__name__}: {e}"
+                tb = _tb.format_exc()
+                log.error("FAILED: %s", summary)
+                log.debug("Full traceback:\n%s", tb)
+                if args.command == "run":
+                    try:
+                        from .notify import notify_all
+                        host = _sock.gethostname()
+                        body = (f"Backup failed (early error) on {host}\n\n"
+                                f"{summary}\n\nFull traceback:\n{tb}")
+                        notify_all(cfg.email, cfg.telegram, "failure",
+                                   f"[backuppy] FAIL {cfg.name} @ {host}", body, log)
+                    except Exception as ne:  # noqa: BLE001
+                        log.error("Failed to send failure notification: %s", ne)
+                rc = 1
 
             if rc != 0:
                 overall = rc if overall == 0 else overall
