@@ -164,7 +164,35 @@ class S3Storage(BaseStorage):
         return out
 
     def delete(self, file_id: str) -> None:
-        self.client.delete_object(Bucket=self.cfg.bucket, Key=file_id)
+        # On a versioned bucket (Backblaze B2 keeps every version), a plain
+        # delete_object only writes a *delete-marker*: the data survives as a
+        # hidden version and keeps occupying space, so rotation never actually
+        # frees anything. To reclaim space we remove EVERY version — and any
+        # delete-markers — of this exact key.
+        to_delete = []
+        try:
+            paginator = self.client.get_paginator("list_object_versions")
+            for page in paginator.paginate(Bucket=self.cfg.bucket, Prefix=file_id):
+                for v in page.get("Versions", []):
+                    if v.get("Key") == file_id:
+                        to_delete.append({"Key": v["Key"], "VersionId": v["VersionId"]})
+                for m in page.get("DeleteMarkers", []):
+                    if m.get("Key") == file_id:
+                        to_delete.append({"Key": m["Key"], "VersionId": m["VersionId"]})
+        except Exception as e:  # noqa: BLE001
+            self.log.debug("S3: version listing failed for %s (%s); plain delete", file_id, e)
+            self.client.delete_object(Bucket=self.cfg.bucket, Key=file_id)
+            return
+
+        if not to_delete:
+            self.client.delete_object(Bucket=self.cfg.bucket, Key=file_id)
+            return
+
+        for i in range(0, len(to_delete), 1000):
+            self.client.delete_objects(
+                Bucket=self.cfg.bucket,
+                Delete={"Objects": to_delete[i:i + 1000], "Quiet": True},
+            )
 
     def check_access(self) -> None:
         self.client.head_bucket(Bucket=self.cfg.bucket)
