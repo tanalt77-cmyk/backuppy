@@ -21,14 +21,19 @@ and sources are responsible for finding and picking them up. This lets users:
 from __future__ import annotations
 
 import datetime as dt
+import errno
+import glob as _glob
+import json
 import logging
 import logging.handlers
+import os
 import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 from pathlib import Path
 
@@ -228,6 +233,186 @@ def _extract_host(text: str) -> str | None:
     return None
 
 
+# --- Source availability / completeness guards -----------------------------
+#
+# Sources and the local destination often live on the SAME Windows host (a CIFS
+# share). When that host reboots at night, the mount goes dead and every read
+# fails with EHOSTDOWN/112. Two things then go wrong:
+#   1) the run dies mid-way (observed: OSError 112 in build_local), and
+#   2) worse — if only PART of the source is readable, FilesSource just logs a
+#      warning and backs up whatever it could see. That "successful" partial
+#      backup then ROTATES OUT the good older copies, which are now physically
+#      deleted on B2. A short outage could therefore destroy real backups.
+#
+# So before doing anything we (a) wait for the mounts to come back, and (b)
+# compare the source size against the previous successful run and refuse to
+# continue if it shrank suspiciously.
+
+_STATE_DIR = Path("/var/lib/backuppy/state")
+
+# Abort if the source is smaller than this fraction of the last good run.
+_MIN_SOURCE_RATIO = float(os.environ.get("BACKUPPY_MIN_SOURCE_RATIO", "0.7"))
+# How long to wait for a dead mount to come back (host reboot), and how often.
+_MOUNT_WAIT_SECONDS = int(os.environ.get("BACKUPPY_MOUNT_WAIT", "600"))
+_MOUNT_RETRY_INTERVAL = 30
+
+# errnos that mean "the server hosting this mount is unreachable right now"
+_HOST_DOWN_ERRNOS = {errno.EHOSTDOWN, errno.ENOTCONN, errno.EHOSTUNREACH,
+                     errno.ETIMEDOUT, errno.ENETUNREACH, errno.ESTALE}
+
+
+def _glob_root(pattern: str) -> str:
+    """The literal part of a path/pattern, up to the first wildcard.
+
+    Deliberately does NOT fall back to the parent directory when the path does
+    not resolve: a dead CIFS mount fails is_dir() exactly like a missing path,
+    and probing its parent (/mnt, which is always alive) would hide the very
+    outage we are trying to detect."""
+    parts = []
+    for seg in Path(pattern).parts:
+        if any(ch in seg for ch in "*?["):
+            break
+        parts.append(seg)
+    return str(Path(*parts)) if parts else "/"
+
+
+def _probe(path: str) -> None:
+    """Touch a path so a dead CIFS mount raises instead of looking empty."""
+    p = Path(path)
+    if p.is_dir():
+        next(iter(os.scandir(path)), None)   # forces a real server round-trip
+    else:
+        p.stat()
+
+
+def _files_source_patterns(cfg: Config) -> list[str]:
+    out: list[str] = []
+    for s in cfg.sources or []:
+        if (s.get("type") or "") == "files":
+            out.extend(s.get("paths") or [])
+    return out
+
+
+def _wait_for_paths(paths: list[str], log: logging.Logger) -> None:
+    """Block until every path is reachable, or raise after _MOUNT_WAIT_SECONDS.
+
+    A rebooting Windows host is back within a few minutes, so waiting beats
+    failing the whole nightly run — and beats the far worse alternative of
+    backing up an empty share."""
+    deadline = time.monotonic() + _MOUNT_WAIT_SECONDS
+    warned = False
+    while True:
+        dead: list[str] = []
+        for p in paths:
+            root = _glob_root(p)
+            try:
+                _probe(root)
+            except OSError as e:
+                if e.errno in _HOST_DOWN_ERRNOS or e.errno == errno.EIO:
+                    dead.append(f"{root} ({e.strerror or e.errno})")
+                elif e.errno == errno.ENOENT:
+                    dead.append(f"{root} (не існує)")
+                else:
+                    dead.append(f"{root} ({e})")
+        if not dead:
+            if warned:
+                log.info("Source/destination mounts are back — continuing")
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                "Backup aborted: source/destination host is unreachable — "
+                + "; ".join(dead)
+                + f". Waited {_MOUNT_WAIT_SECONDS}s. NOTHING was uploaded or "
+                  "rotated, so existing backups are untouched."
+            )
+        if not warned:
+            log.warning("Waiting for unreachable mount(s): %s — retrying for up "
+                        "to %ds before giving up", "; ".join(dead),
+                        _MOUNT_WAIT_SECONDS)
+            warned = True
+        time.sleep(_MOUNT_RETRY_INTERVAL)
+
+
+def _measure_sources(patterns: list[str]) -> tuple[int, int]:
+    """(file_count, total_bytes) currently visible under the source patterns."""
+    n = 0
+    total = 0
+    for pat in patterns:
+        for m in _glob.glob(pat, recursive=True):
+            p = Path(m)
+            try:
+                if p.is_dir():
+                    for f in p.rglob("*"):
+                        if f.is_file():
+                            n += 1
+                            total += f.stat().st_size
+                elif p.is_file():
+                    n += 1
+                    total += p.stat().st_size
+            except OSError:
+                continue
+    return n, total
+
+
+def _state_file(name: str) -> Path:
+    return _STATE_DIR / f"{name}.json"
+
+
+def _load_source_state(name: str) -> dict:
+    try:
+        return json.loads(_state_file(name).read_text())
+    except Exception:  # noqa: BLE001 — missing/corrupt state just means "no baseline"
+        return {}
+
+
+def _save_source_state(name: str, files: int, total: int,
+                       log: logging.Logger) -> None:
+    try:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _state_file(name).write_text(json.dumps(
+            {"files": files, "bytes": total,
+             "at": dt.datetime.now().isoformat(timespec="seconds")}))
+    except Exception as e:  # noqa: BLE001 — never fail a good backup over this
+        log.debug("could not save source state: %s", e)
+
+
+def preflight_sources(cfg: Config, log: logging.Logger) -> tuple[int, int]:
+    """Verify sources (and the local dest) are reachable and look complete.
+
+    Returns (file_count, total_bytes) so the caller can record them as the new
+    baseline AFTER the run succeeds. Raises RuntimeError — before anything is
+    uploaded or rotated — if a mount stays dead or the source shrank sharply.
+    """
+    patterns = _files_source_patterns(cfg)
+    to_check = list(patterns)
+    if getattr(cfg, "local", None) is not None and getattr(cfg.local, "enabled", False):
+        if cfg.local.path:
+            to_check.append(str(cfg.local.path))
+    if to_check:
+        _wait_for_paths(to_check, log)
+
+    if not patterns:
+        return (0, 0)
+
+    files, total = _measure_sources(patterns)
+    prev = _load_source_state(cfg.name)
+    prev_bytes = int(prev.get("bytes") or 0)
+    if prev_bytes and total < prev_bytes * _MIN_SOURCE_RATIO:
+        raise RuntimeError(
+            f"Backup aborted: source shrank to {total / 1024 / 1024:.0f} MB from "
+            f"{prev_bytes / 1024 / 1024:.0f} MB last time "
+            f"({100.0 * total / prev_bytes:.0f}% — under the "
+            f"{_MIN_SOURCE_RATIO:.0%} threshold). This usually means the share "
+            "is only partially readable. NOTHING was uploaded or rotated, so "
+            "existing backups are untouched. Re-run once the source is healthy, "
+            "or set BACKUPPY_MIN_SOURCE_RATIO if the drop is expected."
+        )
+    log.info("Source pre-flight: %d file(s), %.2f MB%s",
+             files, total / 1024 / 1024,
+             f" (previous run: {prev_bytes / 1024 / 1024:.2f} MB)" if prev_bytes else "")
+    return files, total
+
+
 def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
     from .notify import WarningCollector
     host = socket.gethostname()
@@ -243,6 +428,14 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
     warn_collector = WarningCollector()
     warn_collector.setFormatter(logging.Formatter("%(message)s"))
     log.addHandler(warn_collector)
+
+    # Verify the source/destination shares are alive and complete BEFORE
+    # touching anything. build_local() below is exactly where a dead CIFS mount
+    # used to blow up with OSError 112, and a half-readable share used to
+    # produce a partial backup that then rotated out the good copies.
+    src_files = src_bytes = 0
+    if not dry_run:
+        src_files, src_bytes = preflight_sources(cfg, log)
 
     triggers = [build_trigger(t, log) for t in cfg.triggers]
     sources = [build_source(s, log) for s in cfg.sources]
@@ -400,6 +593,11 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
 
             # 4. Rotation
             _rotate_all(cfg, sources, local, remote_dests, log)
+
+            # Baseline for the next run's shrink check — recorded only now,
+            # i.e. only after a complete, verified, uploaded backup.
+            if src_bytes:
+                _save_source_state(cfg.name, src_files, src_bytes, log)
 
     except Exception as e:
         # Operator-facing summary on one line — the actual cause, not the
