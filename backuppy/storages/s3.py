@@ -4,6 +4,8 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import logging
+import threading
+import time
 from pathlib import Path
 
 from ..config import S3Cfg
@@ -11,14 +13,15 @@ from .base import BaseStorage
 
 
 class _RetryLogHandler(logging.Handler):
-    """Forward boto3's own retry decisions into the engine log.
+    """Surface boto3's retry activity in the engine log — WITHOUT flooding it.
 
     boto3 retries transient S3 errors (InternalError, ServiceUnavailable,
-    SlowDown, 500/503) silently; on a normal run nothing is printed, and on a
-    failed one only the final exception shows — so a stalled upload looks like it
-    "failed without retrying". This handler elevates each retry decision to a
-    visible WARNING in the backup log, so the log shows every attempt (e.g.
-    "S3 retry: Retry needed, retrying request after delay of 8.0s").
+    SlowDown, 500/503) silently, so a struggling upload used to look like it
+    "failed without retrying". Logging every single retry, however, buries the
+    real log: a busy upload emits hundreds of lines, which pushes the
+    "=== Done ===" marker out of the log tail the portal reads and makes healthy
+    models show up as "never ran". So retries are COUNTED and reported at most
+    once per _RETRY_LOG_EVERY seconds, plus a total at the end of each upload.
     """
 
     def __init__(self, target: logging.Logger):
@@ -34,9 +37,43 @@ class _RetryLogHandler(logging.Handler):
         # A real retry line STARTS WITH "retry needed" (both standard and legacy
         # modes). Matching the start avoids the "No retry needed." /
         # "Not retrying request." false positives that a substring match hits.
-        # "quota reached" is logged too — it's boto3 giving up at its ceiling.
-        if low.startswith("retry needed") or "quota reached" in low:
-            self._t.warning("S3 retry: %s", msg)
+        if not (low.startswith("retry needed") or "quota reached" in low):
+            return
+        with _RETRY_STATS["lock"]:
+            _RETRY_STATS["total"] += 1
+            n = _RETRY_STATS["total"]
+            now = time.monotonic()
+            due = now - _RETRY_STATS["last_log"] >= _RETRY_LOG_EVERY
+            if n == 1 or due:
+                _RETRY_STATS["last_log"] = now
+                shown = n - _RETRY_STATS["last_reported"]
+                _RETRY_STATS["last_reported"] = n
+                self._t.warning(
+                    "S3 retry: %d transient error(s) retried (total %d this upload) "
+                    "— B2 throttling/flakiness, upload continues", shown, n,
+                )
+
+
+# Retry bookkeeping: counted here, summarised at most once per interval.
+_RETRY_LOG_EVERY = 60          # seconds between retry summary lines
+_RETRY_STATS = {
+    "lock": threading.Lock(),
+    "total": 0,
+    "last_log": 0.0,
+    "last_reported": 0,
+}
+
+
+def _retry_stats_reset() -> None:
+    with _RETRY_STATS["lock"]:
+        _RETRY_STATS["total"] = 0
+        _RETRY_STATS["last_log"] = 0.0
+        _RETRY_STATS["last_reported"] = 0
+
+
+def _retry_stats_total() -> int:
+    with _RETRY_STATS["lock"]:
+        return _RETRY_STATS["total"]
 
 
 _RETRY_LOG_INSTALLED = False
@@ -133,6 +170,7 @@ class S3Storage(BaseStorage):
 
         progress = Progress("Uploading (s3)", total_bytes=size,
                             label=local.name, log=self.log)
+        _retry_stats_reset()
         try:
             self.client.upload_file(
                 Filename=str(local), Bucket=self.cfg.bucket, Key=key,
@@ -143,6 +181,12 @@ class S3Storage(BaseStorage):
         except Exception:
             progress.done(success=False)
             raise
+        finally:
+            # One summary line per upload instead of one line per retry.
+            retries = _retry_stats_total()
+            if retries:
+                self.log.warning(
+                    "S3: %d transient error(s) retried during this upload", retries)
         return f"s3://{self.cfg.bucket}/{key}"
 
     def list_files(self) -> list[dict]:
