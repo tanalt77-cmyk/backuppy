@@ -293,30 +293,72 @@ def _files_source_patterns(cfg: Config) -> list[str]:
     return out
 
 
-def _wait_for_paths(paths: list[str], log: logging.Logger) -> None:
-    """Block until every path is reachable, or raise after _MOUNT_WAIT_SECONDS.
+def _classify_path(path: str) -> tuple[str, str]:
+    """('ok'|'dead'|'missing', detail) for one source/destination path.
 
-    A rebooting Windows host is back within a few minutes, so waiting beats
-    failing the whole nightly run — and beats the far worse alternative of
-    backing up an empty share."""
+    A missing sub-directory on a LIVE share is not an outage: FilesSource has
+    always just warned about it and backed up the rest. Only an unreachable
+    server should hold up the run. So when a path is absent we walk up to its
+    nearest existing ancestor and probe that: if the ancestor answers, the mount
+    is alive and the path is merely gone ('missing'); if the probe fails with a
+    host-down errno, the server really is unreachable ('dead')."""
+    try:
+        _probe(path)
+        return ("ok", "")
+    except OSError as e:
+        if e.errno in _HOST_DOWN_ERRNOS or e.errno == errno.EIO:
+            return ("dead", f"{path} ({e.strerror or e.errno})")
+        if e.errno != errno.ENOENT:
+            return ("dead", f"{path} ({e})")
+    # ENOENT — is the mount underneath it still alive?
+    p = Path(path)
+    for anc in p.parents:
+        try:
+            _probe(str(anc))
+            return ("missing", f"{path} (немає на живій шарі {anc})")
+        except OSError as e:
+            if e.errno in _HOST_DOWN_ERRNOS or e.errno == errno.EIO:
+                return ("dead", f"{path} (шара {anc}: {e.strerror or e.errno})")
+            if e.errno == errno.ENOENT:
+                continue
+            return ("dead", f"{path} ({e})")
+    return ("dead", f"{path} (недоступний)")
+
+
+def _wait_for_paths(paths: list[str], log: logging.Logger) -> None:
+    """Block until every path's HOST is reachable, or raise after
+    _MOUNT_WAIT_SECONDS. Paths that are simply absent on a live share are
+    reported as warnings and do NOT hold up (or fail) the run — the shrink
+    guard below is what catches "too much data went missing"."""
     deadline = time.monotonic() + _MOUNT_WAIT_SECONDS
     warned = False
     while True:
         dead: list[str] = []
+        missing: list[str] = []
         for p in paths:
-            root = _glob_root(p)
-            try:
-                _probe(root)
-            except OSError as e:
-                if e.errno in _HOST_DOWN_ERRNOS or e.errno == errno.EIO:
-                    dead.append(f"{root} ({e.strerror or e.errno})")
-                elif e.errno == errno.ENOENT:
-                    dead.append(f"{root} (не існує)")
-                else:
-                    dead.append(f"{root} ({e})")
+            state, detail = _classify_path(_glob_root(p))
+            if state == "dead":
+                dead.append(detail)
+            elif state == "missing":
+                missing.append(detail)
         if not dead:
             if warned:
                 log.info("Source/destination mounts are back — continuing")
+            if missing and not any(
+                _classify_path(_glob_root(p))[0] == "ok" for p in paths
+            ):
+                # Nothing at all is there. A single renamed folder is routine,
+                # but ALL paths vanishing means the share was unmounted (or the
+                # data really is gone) — never quietly back that up.
+                raise RuntimeError(
+                    "Backup aborted: none of the source paths exist — "
+                    + "; ".join(missing)
+                    + ". The share is probably not mounted. NOTHING was "
+                      "uploaded or rotated, so existing backups are untouched."
+                )
+            if missing:
+                log.warning("Source path(s) absent (share is alive, continuing): %s",
+                            "; ".join(missing))
             return
         if time.monotonic() >= deadline:
             raise RuntimeError(
@@ -326,7 +368,7 @@ def _wait_for_paths(paths: list[str], log: logging.Logger) -> None:
                   "rotated, so existing backups are untouched."
             )
         if not warned:
-            log.warning("Waiting for unreachable mount(s): %s — retrying for up "
+            log.warning("Waiting for unreachable host(s): %s — retrying for up "
                         "to %ds before giving up", "; ".join(dead),
                         _MOUNT_WAIT_SECONDS)
             warned = True
