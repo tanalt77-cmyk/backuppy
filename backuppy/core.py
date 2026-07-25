@@ -426,7 +426,15 @@ def preflight_sources(cfg: Config, log: logging.Logger) -> tuple[int, int]:
     uploaded or rotated — if a mount stays dead or the source shrank sharply.
     """
     patterns = _files_source_patterns(cfg)
-    to_check = list(patterns)
+    has_triggers = bool(getattr(cfg, "triggers", None))
+
+    # What must be reachable BEFORE the run. For DB models the source is a dump
+    # produced during the run (its staging dir may not exist yet), so we only
+    # require the local destination share to be alive; for files models we also
+    # require the source paths' host.
+    to_check = []
+    if not has_triggers:
+        to_check.extend(patterns)
     if getattr(cfg, "local", None) is not None and getattr(cfg.local, "enabled", False):
         if cfg.local.path:
             to_check.append(str(cfg.local.path))
@@ -434,6 +442,16 @@ def preflight_sources(cfg: Config, log: logging.Logger) -> tuple[int, int]:
         _wait_for_paths(to_check, log)
 
     if not patterns:
+        return (0, 0)
+
+    # Models with triggers (MSSQL/Postgres/MySQL) DUMP their source during the
+    # run — before that dump exists the source dir is empty. Measuring here, at
+    # the start, would always see 0 bytes and trip the shrink guard. So for
+    # trigger-driven models we only checked reachability above; the size/shrink
+    # guard is meaningless and is skipped.
+    if has_triggers:
+        log.info("Source pre-flight: reachability OK (DB model — source is "
+                 "produced by triggers, size guard skipped)")
         return (0, 0)
 
     files, total = _measure_sources(patterns)
