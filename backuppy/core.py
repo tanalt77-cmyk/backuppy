@@ -408,12 +408,25 @@ def _load_source_state(name: str) -> dict:
 
 
 def _save_source_state(name: str, files: int, total: int,
-                       log: logging.Logger) -> None:
+                       log: logging.Logger, *, baseline: bool = True) -> None:
+    """Persist source measurements.
+
+    baseline=True  → record the accepted baseline (only after a good run).
+    baseline=False → only update 'last_seen' (every run, even aborted ones), so
+                     the shrink guard can tell a STABLE shrink (real removal)
+                     from a FLAPPING one (partial read).
+    """
     try:
         _STATE_DIR.mkdir(parents=True, exist_ok=True)
-        _state_file(name).write_text(json.dumps(
-            {"files": files, "bytes": total,
-             "at": dt.datetime.now().isoformat(timespec="seconds")}))
+        prev = _load_source_state(name)
+        data = dict(prev)
+        data["last_seen"] = total
+        data["last_seen_at"] = dt.datetime.now().isoformat(timespec="seconds")
+        if baseline:
+            data["files"] = files
+            data["bytes"] = total
+            data["at"] = data["last_seen_at"]
+        _state_file(name).write_text(json.dumps(data))
     except Exception as e:  # noqa: BLE001 — never fail a good backup over this
         log.debug("could not save source state: %s", e)
 
@@ -457,16 +470,34 @@ def preflight_sources(cfg: Config, log: logging.Logger) -> tuple[int, int]:
     files, total = _measure_sources(patterns)
     prev = _load_source_state(cfg.name)
     prev_bytes = int(prev.get("bytes") or 0)
+    last_seen = int(prev.get("last_seen") or 0)
+    # Record what we saw THIS run (not as a new baseline) so the next run can
+    # judge stability, even if we abort below.
+    _save_source_state(cfg.name, files, total, log, baseline=False)
+
     if prev_bytes and total < prev_bytes * _MIN_SOURCE_RATIO:
-        raise RuntimeError(
-            f"Backup aborted: source shrank to {total / 1024 / 1024:.0f} MB from "
-            f"{prev_bytes / 1024 / 1024:.0f} MB last time "
-            f"({100.0 * total / prev_bytes:.0f}% — under the "
-            f"{_MIN_SOURCE_RATIO:.0%} threshold). This usually means the share "
-            "is only partially readable. NOTHING was uploaded or rotated, so "
-            "existing backups are untouched. Re-run once the source is healthy, "
-            "or set BACKUPPY_MIN_SOURCE_RATIO if the drop is expected."
-        )
+        # The source dropped sharply. A partial read fluctuates run-to-run; a
+        # real removal (folders deleted/renamed) is stable. If this run's size
+        # matches the previous run's within 10%, treat it as the new normal and
+        # continue — otherwise it looks like a flapping/partial read and we stop.
+        tol = max(last_seen * 0.10, 50 * 1024 * 1024)
+        stable = last_seen and abs(total - last_seen) <= tol
+        if not stable:
+            raise RuntimeError(
+                f"Backup aborted: source shrank to {total / 1024 / 1024:.0f} MB from "
+                f"{prev_bytes / 1024 / 1024:.0f} MB last time "
+                f"({100.0 * total / prev_bytes:.0f}% — under the "
+                f"{_MIN_SOURCE_RATIO:.0%} threshold). This usually means the share "
+                "is only partially readable. NOTHING was uploaded or rotated, so "
+                "existing backups are untouched. If the drop is real (files were "
+                "removed), just run it again — a second run at the same size is "
+                "accepted as the new baseline. Or set BACKUPPY_MIN_SOURCE_RATIO."
+            )
+        log.warning(
+            "Source is %.0f MB, well below the previous baseline of %.0f MB, but "
+            "matches the last run (%.0f MB) — treating the smaller size as the new "
+            "normal and continuing.", total / 1024 / 1024,
+            prev_bytes / 1024 / 1024, last_seen / 1024 / 1024)
     log.info("Source pre-flight: %d file(s), %.2f MB%s",
              files, total / 1024 / 1024,
              f" (previous run: {prev_bytes / 1024 / 1024:.2f} MB)" if prev_bytes else "")
