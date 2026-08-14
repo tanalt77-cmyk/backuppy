@@ -28,11 +28,19 @@ class LocalStorage(BaseStorage):
             return sub
         return self.dest_dir
 
-    def store(self, src: Path) -> Path:
-        """Move src into the local backup directory (under run-subdir if active)."""
+    def store(self, src: Path, keep_src: bool = False) -> Path:
+        """Place src into the local backup directory (under run-subdir if active).
+
+        keep_src=False (default): move src in (fast, frees the staging file).
+        keep_src=True: copy src in, leaving the original in place — needed when
+        the same artifact must also land in OTHER destinations (a second local
+        copy, or remote uploads that read from the staging file)."""
         target = self._target_dir()
         dest = target / src.name
-        shutil.move(str(src), dest)
+        if keep_src:
+            shutil.copy2(str(src), dest)
+        else:
+            shutil.move(str(src), dest)
         self.log.info("Local: stored %s", dest)
         return dest
 

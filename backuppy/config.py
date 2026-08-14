@@ -277,6 +277,12 @@ class Config:
 
     # Destinations
     local: LocalCfg = field(default_factory=LocalCfg)
+    # Additional local destinations. `local` above stays the PRIMARY one (kept
+    # for backward compatibility and for code/logs that reference cfg.local);
+    # `locals` is the full list the engine actually iterates over (store,
+    # rotate, verify, prune). Populated by _build_config from either the old
+    # `local: {..}` dict or the new `local: [{..}, {..}]` list form.
+    locals: list[LocalCfg] = field(default_factory=list)
     webdav: WebDAVCfg = field(default_factory=WebDAVCfg)
     s3: S3Cfg = field(default_factory=S3Cfg)
     sftp: SFTPCfg = field(default_factory=SFTPCfg)
@@ -338,6 +344,32 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return out
 
 
+def _all_locals(node: Any) -> list[LocalCfg]:
+    """Parse the `local` config node into a list of LocalCfg.
+
+    Accepts both the historical single-mapping form and a new list form, so
+    every existing model keeps working unchanged:
+        local: {path: /x, keep_last: 5}          → [one]
+        local: [{path: /x}, {path: /y}]          → [two]
+        (absent)                                 → [default, enabled]
+    """
+    if node is None:
+        return [LocalCfg()]
+    if isinstance(node, dict):
+        return [LocalCfg(**node)]
+    if isinstance(node, list):
+        out = [LocalCfg(**item) for item in node if isinstance(item, dict)]
+        return out or [LocalCfg(enabled=False)]
+    return [LocalCfg(enabled=False)]
+
+
+def _primary_local(node: Any) -> LocalCfg:
+    """The first local destination — kept as cfg.local for backward
+    compatibility (logs, verify, and any code that reads cfg.local.path)."""
+    locs = _all_locals(node)
+    return locs[0] if locs else LocalCfg(enabled=False)
+
+
 def _build_config(raw: dict[str, Any]) -> Config:
     # Validate triggers and sources
     triggers = raw.get("triggers", []) or []
@@ -380,7 +412,8 @@ def _build_config(raw: dict[str, Any]) -> Config:
         throttle=ThrottleCfg(**raw.get("throttle", {})),
         verify=VerifyCfg(**raw.get("verify", {})),
         hooks=HooksCfg(**raw.get("hooks", {})),
-        local=LocalCfg(**raw.get("local", {})),
+        local=_primary_local(raw.get("local")),
+        locals=_all_locals(raw.get("local")),
         webdav=WebDAVCfg(**raw.get("webdav", {})),
         s3=S3Cfg(**raw.get("s3", {})),
         sftp=SFTPCfg(**raw.get("sftp", {})),

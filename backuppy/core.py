@@ -140,15 +140,37 @@ def build_destinations(cfg: Config, log: logging.Logger) -> list[BaseStorage]:
     return out
 
 
-def build_local(cfg: Config, log: logging.Logger):
-    """Build LocalStorage with model name appended to path."""
-    if not cfg.local.enabled:
-        return None
+def _cfg_locals(cfg: Config) -> list:
+    """The list of configured local destinations. Falls back to the single
+    cfg.local for older Config objects that predate cfg.locals."""
+    locs = getattr(cfg, "locals", None)
+    if locs:
+        return locs
+    return [cfg.local] if getattr(cfg, "local", None) is not None else []
+
+
+def build_locals(cfg: Config, log: logging.Logger) -> list:
+    """Build a LocalStorage for every enabled local destination, with the model
+    name appended to each path. Returns a list (possibly empty). Multiple local
+    destinations let a model keep two physically separate copies, e.g. one on a
+    mounted Windows share and one on the agent's own disk."""
     import copy
     from pathlib import Path
-    local_cfg = copy.copy(cfg.local)
-    local_cfg.path = str(Path(local_cfg.path) / cfg.name)
-    return LocalStorage(local_cfg, log)
+    out = []
+    for lc in _cfg_locals(cfg):
+        if not getattr(lc, "enabled", False):
+            continue
+        local_cfg = copy.copy(lc)
+        local_cfg.path = str(Path(local_cfg.path) / cfg.name)
+        out.append(LocalStorage(local_cfg, log))
+    return out
+
+
+def build_local(cfg: Config, log: logging.Logger):
+    """Backward-compatible single-local builder: returns the FIRST enabled
+    local storage, or None. Kept for callers/tests that expect one object."""
+    locs = build_locals(cfg, log)
+    return locs[0] if locs else None
 
 
 def keep_last_for(storage: BaseStorage, cfg: Config) -> int:
@@ -448,9 +470,9 @@ def preflight_sources(cfg: Config, log: logging.Logger) -> tuple[int, int]:
     to_check = []
     if not has_triggers:
         to_check.extend(patterns)
-    if getattr(cfg, "local", None) is not None and getattr(cfg.local, "enabled", False):
-        if cfg.local.path:
-            to_check.append(str(cfg.local.path))
+    for lc in _cfg_locals(cfg):
+        if getattr(lc, "enabled", False) and getattr(lc, "path", ""):
+            to_check.append(str(lc.path))
     if to_check:
         _wait_for_paths(to_check, log)
 
@@ -531,7 +553,7 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
     triggers = [build_trigger(t, log) for t in cfg.triggers]
     sources = [build_source(s, log) for s in cfg.sources]
     remote_dests = build_destinations(cfg, log)
-    local = build_local(cfg, log)
+    locals_ = build_locals(cfg, log)
 
     # Log destinations summary so cron logs make it obvious where backups
     # were sent (or weren't, if a section is disabled).
@@ -544,7 +566,7 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
     if cfg.group_by_run:
         run_subdir = started.strftime("%Y%m%d-%H%M%S")
         log.info("group_by_run: enabled — using subdir '%s'", run_subdir)
-        if local:
+        for local in locals_:
             local.set_run_subdir(run_subdir)
         for d in remote_dests:
             d.set_run_subdir(run_subdir)
@@ -558,8 +580,9 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
         log.info("  compression: %s", cfg.compression.method)
         if cfg.encryption.enabled:
             log.info("  encryption: %s", cfg.encryption.method)
-        if local:
-            log.info("  local: %s (keep=%d)", cfg.local.path, cfg.local.keep_last)
+        for lc in _cfg_locals(cfg):
+            if getattr(lc, "enabled", False):
+                log.info("  local: %s (keep=%d)", lc.path, lc.keep_last)
         for d in remote_dests:
             log.info("  remote: %s (keep=%d)", d.name, keep_last_for(d, cfg))
         return 0
@@ -674,16 +697,24 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
                 art = encrypt_file(art, cfg.encryption, log)
                 parts = split_file(art, cfg.splitter, log)
                 for part in parts:
-                    # local first (acts as a staging area too)
-                    if local:
-                        local_dest = local.store(part)
-                    else:
-                        local_dest = part
+                    # Store into EVERY local destination. The staging file must
+                    # survive until its last consumer, so we keep the source for
+                    # all copies except the very last store when there are no
+                    # remote uploads to follow. The first local copy doubles as
+                    # the file remotes upload from.
+                    local_dest = part
+                    for i, local in enumerate(locals_):
+                        is_last_local = (i == len(locals_) - 1)
+                        # keep the source unless this is the final consumer
+                        keep = (not is_last_local) or bool(remote_dests)
+                        stored = local.store(part, keep_src=keep)
+                        if i == 0:
+                            local_dest = stored
                     for dest in remote_dests:
                         _upload_with_verify(dest, local_dest, cfg, log)
 
             # 4. Rotation
-            _rotate_all(cfg, sources, local, remote_dests, log)
+            _rotate_all(cfg, sources, locals_, remote_dests, log)
 
             # Baseline for the next run's shrink check — recorded only now,
             # i.e. only after a complete, verified, uploaded backup.
@@ -764,7 +795,9 @@ def _log_destinations_summary(cfg: "Config", log: logging.Logger) -> None:
     exists in the YAML but enabled=false, we want the user to SEE that.
     """
     rows: list[tuple[str, bool, str]] = [
-        ("local",   cfg.local.enabled,   cfg.local.path),
+        *[("local" if i == 0 else f"local{i+1}",
+           getattr(lc, "enabled", False), getattr(lc, "path", ""))
+          for i, lc in enumerate(_cfg_locals(cfg))],
         ("webdav",  cfg.webdav.enabled,  cfg.webdav.remote_path),
         ("s3",      cfg.s3.enabled,      f"{cfg.s3.bucket}/{cfg.s3.prefix}"),
         ("sftp",    cfg.sftp.enabled,    cfg.sftp.remote_path),
@@ -785,17 +818,20 @@ def _log_destinations_summary(cfg: "Config", log: logging.Logger) -> None:
         log.warning("No destinations enabled — backups will only stay in tmp_dir.")
 
 
-def _rotate_all(cfg: Config, sources, local, remotes, log: logging.Logger) -> None:
+def _rotate_all(cfg: Config, sources, locals_, remotes, log: logging.Logger) -> None:
     """Rotate backups. Two modes:
 
     1) group_by_run = True: rotate by run-directory.
        keep_last keeps that many run-subdirs.
     2) group_by_run = False (default): rotate by filename prefix (per-file).
+
+    `locals_` is the list of local destinations; each rotates with its OWN
+    keep_last (its store already carries the per-destination LocalCfg).
     """
     if cfg.group_by_run:
         # Per-directory rotation
-        if local:
-            local.rotate_run_dirs(cfg.local.keep_last, log)
+        for local in locals_:
+            local.rotate_run_dirs(local.cfg.keep_last, log)
         for s in remotes:
             keep = keep_last_for(s, cfg)
             s.rotate_run_dirs(keep, log)
@@ -810,9 +846,9 @@ def _rotate_all(cfg: Config, sources, local, remotes, log: logging.Logger) -> No
         log.debug("No archive-name prefixes; rotation skipped")
         return
 
-    if local:
+    for local in locals_:
         for p in prefixes:
-            local.rotate(p, cfg.local.keep_last, log)
+            local.rotate(p, local.cfg.keep_last, log)
 
     for s in remotes:
         keep = keep_last_for(s, cfg)
@@ -821,9 +857,8 @@ def _rotate_all(cfg: Config, sources, local, remotes, log: logging.Logger) -> No
 
 
 def cmd_list(cfg: Config, log: logging.Logger) -> int:
-    if cfg.local.enabled:
-        log.info("Local backups in %s:", cfg.local.path)
-        local = build_local(cfg, log)
+    for local in build_locals(cfg, log):
+        log.info("Local backups in %s:", local.cfg.path)
         for f in sorted(local.list_files(), key=lambda x: x["name"]):
             mb = f["size"] / 1024 / 1024
             print(f"  {f['name']}  ({mb:.2f} MB)")
@@ -886,10 +921,8 @@ def model_usage(cfg: Config, log: logging.Logger) -> dict:
         })
         out["total_bytes"] += total
 
-    if cfg.local.enabled:
-        local = build_local(cfg, log)
-        if local is not None:
-            _measure(local, "local")
+    for i, local in enumerate(build_locals(cfg, log)):
+        _measure(local, "local" if i == 0 else f"local{i+1}")
     for d in build_destinations(cfg, log):
         _measure(d, d.name)
     return out
@@ -935,10 +968,8 @@ def model_storage_detail(cfg: Config, log: logging.Logger) -> dict:
             "loose_files": loose["files"], "loose_bytes": loose["bytes"],
         })
 
-    if cfg.local.enabled:
-        local = build_local(cfg, log)
-        if local is not None:
-            _detail(local, "local")
+    for i, local in enumerate(build_locals(cfg, log)):
+        _detail(local, "local" if i == 0 else f"local{i+1}")
     for d in build_destinations(cfg, log):
         _detail(d, d.name)
     return out
@@ -959,10 +990,11 @@ def delete_run_dir(cfg: Config, run_dir: str, dest_type: str | None,
             f"(expected YYYYMMDD-HHMMSS)")
 
     stores: list[tuple[str, object]] = []
-    if cfg.local.enabled and dest_type in (None, "local"):
-        local = build_local(cfg, log)
-        if local is not None:
-            stores.append(("local", local))
+    if dest_type in (None, "local", "local2", "local3", "local4"):
+        for i, local in enumerate(build_locals(cfg, log)):
+            label = "local" if i == 0 else f"local{i+1}"
+            if dest_type in (None, label) or (dest_type == "local" and i == 0):
+                stores.append((label, local))
     for d in build_destinations(cfg, log):
         if dest_type in (None, d.name):
             stores.append((d.name, d))
@@ -1019,8 +1051,8 @@ def cmd_verify(cfg: Config, log: logging.Logger) -> int:
             return 1
 
     # Local
-    if cfg.local.enabled:
-        build_local(cfg, log).check_access()
+    for local in build_locals(cfg, log):
+        local.check_access()
 
     # Destinations summary — show every storage section's status so the user
     # can spot "ah, I forgot to enable S3" before running a backup.
