@@ -746,7 +746,7 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
             )
         notify_all(cfg.email, cfg.telegram, "failure",
                    f"[backuppy] FAIL {cfg.name} @ {host}",
-                   body, log)
+                   body, log, getattr(cfg.log, "file", None))
         return 1
 
     elapsed = (dt.datetime.now() - started).total_seconds()
@@ -771,7 +771,8 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
         subject = f"[backuppy] OK {cfg.name} @ {host}"
         body = f"Backup finished successfully in {elapsed:.1f}s."
 
-    notify_all(cfg.email, cfg.telegram, outcome, subject, body, log)
+    notify_all(cfg.email, cfg.telegram, outcome, subject, body, log,
+               getattr(cfg.log, "file", None))
     return 0
 
 

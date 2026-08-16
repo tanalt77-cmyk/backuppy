@@ -65,7 +65,7 @@ def should_notify(when: str, outcome: str) -> bool:
 
 
 def send_email(cfg: EmailCfg, subject: str, body: str,
-               log: logging.Logger) -> None:
+               log: logging.Logger, log_path: str | None = None) -> None:
     if not cfg.enabled:
         return
     msg = EmailMessage()
@@ -73,6 +73,26 @@ def send_email(cfg: EmailCfg, subject: str, body: str,
     msg["From"] = cfg.from_addr
     msg["To"] = ", ".join(cfg.to_addrs)
     msg.set_content(body)
+
+    # Attach the run log as a .txt file (rather than dumping it in the body),
+    # so the email stays readable and the full log is one click away. Best
+    # effort: a missing/unreadable log never blocks the notification.
+    if log_path:
+        try:
+            import os
+            with open(log_path, "rb") as fh:
+                data = fh.read()
+            # Cap very large logs so we don't send a huge attachment; keep the
+            # tail, which holds the error and the "=== Done ===" marker.
+            max_bytes = 512 * 1024
+            if len(data) > max_bytes:
+                data = b"[... log truncated, showing last %d KB ...]\n\n" % (
+                    max_bytes // 1024) + data[-max_bytes:]
+            fname = os.path.basename(log_path) or "backuppy.log"
+            msg.add_attachment(data, maintype="text", subtype="plain",
+                               filename=fname)
+        except Exception as e:  # noqa: BLE001 — attachment is optional
+            log.debug("could not attach log %s: %s", log_path, e)
 
     try:
         with smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=30) as s:
@@ -118,7 +138,7 @@ def send_telegram(cfg: TelegramCfg, subject: str, body: str,
 
 def notify_all(email_cfg: EmailCfg, telegram_cfg: TelegramCfg,
                outcome: str, subject: str, body: str,
-               log: logging.Logger) -> None:
+               log: logging.Logger, log_path: str | None = None) -> None:
     """Dispatch to all configured channels whose `when` matches `outcome`."""
     for ch_cfg, sender in [(email_cfg, send_email),
                            (telegram_cfg, send_telegram)]:
@@ -129,4 +149,7 @@ def notify_all(email_cfg: EmailCfg, telegram_cfg: TelegramCfg,
             log.warning("Notification: unknown when=%r, treating as on_failure", when)
             when = "on_failure"
         if should_notify(when, outcome):
-            sender(ch_cfg, subject, body, log)
+            if sender is send_email:
+                sender(ch_cfg, subject, body, log, log_path)
+            else:
+                sender(ch_cfg, subject, body, log)
