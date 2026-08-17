@@ -294,9 +294,26 @@ class WebDAVStorage(BaseStorage):
                 progress.advance(len(data))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as pool:
-            futures = [pool.submit(_send, i) for i in range(1, total_chunks + 1)]
-            for fut in concurrent.futures.as_completed(futures):
-                fut.result()  # re-raise the first chunk failure
+            # Bound the number of in-flight chunks to `parallel`. Submitting ALL
+            # chunks up front means every pending task can hold its data buffer
+            # in memory — and when the server starts returning 500s, retries pile
+            # up until RSS explodes and the OOM-killer reaps the process. A
+            # sliding window keeps peak memory at ~parallel * chunk_size.
+            import itertools
+            idx_iter = iter(range(1, total_chunks + 1))
+            in_flight = {}
+            # prime the window
+            for i in itertools.islice(idx_iter, parallel):
+                in_flight[pool.submit(_send, i)] = i
+            while in_flight:
+                done, _ = concurrent.futures.wait(
+                    in_flight, return_when=concurrent.futures.FIRST_COMPLETED)
+                for fut in done:
+                    in_flight.pop(fut)
+                    fut.result()  # re-raise the first chunk failure
+                    nxt = next(idx_iter, None)
+                    if nxt is not None:
+                        in_flight[pool.submit(_send, nxt)] = nxt
 
     def _assemble_timeout(self, size: int):
         """(connect, read) timeout for the final MOVE.
