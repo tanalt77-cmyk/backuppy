@@ -120,6 +120,14 @@ class S3Storage(BaseStorage):
             "config": BotoConfig(
                 retries={"max_attempts": self.cfg.max_retries, "mode": "adaptive"},
                 signature_version="s3v4",
+                # Fail fast on a stalled/saturated connection so the adaptive
+                # retry re-dispatches (B2 hands out a fresh vault) instead of
+                # hanging until a hard TLS EOF. Cap the pool so a saturated
+                # connection isn't reused for the next part.
+                connect_timeout=self.cfg.connect_timeout_s,
+                read_timeout=self.cfg.read_timeout_s,
+                max_pool_connections=self.cfg.max_pool_connections,
+                tcp_keepalive=self.cfg.tcp_keepalive,
             ),
         }
         if self.cfg.access_key_id and self.cfg.secret_access_key:

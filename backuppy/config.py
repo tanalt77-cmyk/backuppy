@@ -151,6 +151,15 @@ class S3Cfg:
     multipart_chunksize_mb: int = 64
     max_concurrency: int = 8       # parallel multipart parts (1 stream ≈ 10 MB/s)
     max_retries: int = 15           # per-request attempts (adaptive backoff)
+    # --- resilience tuning (esp. Backblaze B2 "contract architecture") ---
+    # B2 returns 503/500 or drops the TLS connection to say "this vault is
+    # saturated — get a fresh upload URL". These make the client give up on a
+    # stuck socket quickly (so the retry re-dispatches) instead of hanging until
+    # a hard TLS EOF, and stop it from reusing a saturated connection.
+    connect_timeout_s: int = 15     # give up establishing a socket after this
+    read_timeout_s: int = 120       # give up waiting on a stalled response
+    max_pool_connections: int = 10  # cap reused connections (fresh vault on retry)
+    tcp_keepalive: bool = True      # detect dead peers faster
 
 
 @dataclass
