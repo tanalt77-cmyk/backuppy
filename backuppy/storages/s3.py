@@ -169,9 +169,27 @@ class S3Storage(BaseStorage):
         if self.cfg.server_side_encryption:
             extra["ServerSideEncryption"] = self.cfg.server_side_encryption
 
+        # Adaptive part size: for very large files, a fixed small chunk means
+        # thousands of PUT-part requests, each a chance to hit B2 throttling —
+        # and B2 caps a multipart upload at 10000 parts. Scale the chunk up so
+        # the part COUNT stays bounded (target ≤ ~2000 parts), which both stays
+        # well under the hard limit and cuts the number of requests (and thus
+        # retries) on big uploads. Never go below the configured chunk size.
+        base_chunk = self.cfg.multipart_chunksize_mb * 1024 * 1024
+        target_parts = 2000
+        chunk = base_chunk
+        if size > base_chunk * target_parts:
+            # round up to the next 16 MB so parts stay tidy
+            needed = size // target_parts + 1
+            step = 16 * 1024 * 1024
+            chunk = ((needed + step - 1) // step) * step
+            self.log.info("S3: large file (%.1f GB) → part size %d MB (~%d parts)",
+                          size / 1024**3, chunk // 1024 // 1024,
+                          (size + chunk - 1) // chunk)
+
         transfer = TransferConfig(
             multipart_threshold=self.cfg.multipart_threshold_mb * 1024 * 1024,
-            multipart_chunksize=self.cfg.multipart_chunksize_mb * 1024 * 1024,
+            multipart_chunksize=chunk,
             max_concurrency=max(1, self.cfg.max_concurrency),
             use_threads=True,
         )
