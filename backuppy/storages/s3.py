@@ -97,6 +97,20 @@ def _install_retry_logging(target: logging.Logger) -> None:
     _RETRY_LOG_INSTALLED = True
 
 
+def _adaptive_concurrency(size: int, base: int) -> int:
+    """Reduce parallel part uploads for very large files. Many concurrent parts
+    create a request burst that B2 throttles, causing retries seen on
+    multi-hundred-GB uploads. Fewer streams on giants = smaller burst = fewer
+    transient errors, at slightly lower throughput. Small files keep the base."""
+    base = max(1, base)
+    gb = size / (1024 ** 3)
+    if gb > 100:
+        return min(base, 4)
+    if gb > 50:
+        return min(base, 6)
+    return base
+
+
 class S3Storage(BaseStorage):
     name = "s3"
 
@@ -190,7 +204,7 @@ class S3Storage(BaseStorage):
         transfer = TransferConfig(
             multipart_threshold=self.cfg.multipart_threshold_mb * 1024 * 1024,
             multipart_chunksize=chunk,
-            max_concurrency=max(1, self.cfg.max_concurrency),
+            max_concurrency=_adaptive_concurrency(size, self.cfg.max_concurrency),
             use_threads=True,
         )
 
