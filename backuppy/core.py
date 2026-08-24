@@ -736,7 +736,7 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
         body = (
             f"Backup failed at {started:%Y-%m-%d %H:%M:%S}\n\n"
             f"{summary}\n\n"
-            f"Full traceback (for debugging):\n{tb}"
+            f"See the attached log for the full traceback and details."
         )
         if warn_collector.messages:
             body += (
