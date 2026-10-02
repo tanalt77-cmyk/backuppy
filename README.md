@@ -645,6 +645,8 @@ If you get HTTP 201, that chunk size is fine.
 compression:
   method: gzip           # gzip | bzip2 | xz | zstd | none
   level: 6               # null = default; gzip/bz2/xz: 1-9; zstd: 1-22
+  stream: true           # files sources with archive_name: pipe tar straight
+                         # into the compressor (no uncompressed .tar on disk)
 
 encryption:
   enabled: false

@@ -58,6 +58,11 @@ SOURCE_TYPES = {"files"}
 class CompressionCfg:
     method: str = "gzip"           # gzip | bzip2 | xz | zstd | none
     level: int | None = None
+    # Pipe archives a source builds itself (files source with archive_name)
+    # straight into the compressor, instead of writing the whole uncompressed
+    # tar first and compressing it afterwards. Halves the temp space needed and
+    # overlaps reading with compressing. false = old two-step behaviour.
+    stream: bool = True
 
 
 @dataclass

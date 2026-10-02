@@ -7,6 +7,7 @@ trigger — to backuppy it's all "files on the filesystem".
 from __future__ import annotations
 
 import datetime as dt
+import errno
 import fnmatch
 import glob
 import logging
@@ -14,6 +15,48 @@ import re
 import shutil
 import tarfile
 from pathlib import Path
+
+
+_BUF = 4 * 1024 * 1024  # tar read/write buffer
+
+# errnos that mean "cannot WRITE the archive" — never a per-file skip
+_WRITE_ERRNOS = {errno.ENOSPC, errno.EPIPE, errno.EDQUOT, errno.EFBIG}
+
+
+class _ExactReader:
+    """File reader that yields exactly `size` bytes, whatever the file does.
+
+    tarfile needs a member's data to match the size in its already-written
+    header. If the file shrinks or a read fails part-way, the rest is filled
+    with zeros (and `problem` says what happened); if it grows, the extra is
+    never read.
+    """
+
+    def __init__(self, fh, size: int):
+        self.fh = fh
+        self.left = size
+        self.problem = ""
+
+    def read(self, n: int = -1) -> bytes:
+        if n is None or n < 0 or n > self.left:
+            n = self.left
+        if n == 0:
+            return b""
+        data = b""
+        while not self.problem and len(data) < n:
+            try:
+                chunk = self.fh.read(n - len(data))
+            except OSError as e:
+                self.problem = f"read failed ({e})"
+                break
+            if not chunk:
+                self.problem = f"shrank while being read ({self.left - len(data)} bytes missing)"
+                break
+            data += chunk
+        if len(data) < n:
+            data += bytes(n - len(data))
+        self.left -= n
+        return data
 
 
 class FilesSource:
@@ -43,6 +86,9 @@ class FilesSource:
         # Remember which files were picked up in the LAST pickup() call,
         # so prefixes() can derive rotation prefixes from real filenames.
         self._last_picked: list[Path] = []
+        # Archives from the last pickup() that are already compressed.
+        self.compressed: set[Path] = set()
+        self._last_size = 0
 
         if not self.paths:
             raise ValueError("FilesSource: 'paths' is required and non-empty")
@@ -124,12 +170,19 @@ class FilesSource:
                 return True
         return False
 
-    def pickup(self, work_dir: Path, model_name: str) -> list[Path]:
+    def pickup(self, work_dir: Path, model_name: str,
+               compression=None) -> list[Path]:
         """Copy/move matched files into work_dir. Returns list of files in work_dir.
 
         If archive_name is set, pack everything into one tar in work_dir.
         Otherwise, copy each file individually.
+
+        compression: the model's CompressionCfg. When it allows streaming, the
+        tar is piped straight into the compressor and the returned archive is
+        already compressed (listed in self.compressed) — the caller must not
+        compress it again.
         """
+        self.compressed = set()
         matched = self._expand()
         if not matched:
             self.log.warning("FilesSource: no files matched patterns: %s",
@@ -152,34 +205,17 @@ class FilesSource:
         if self.archive_name:
             # Pack into a single tar — preserve folder structure under each path's root
             tar_name = f"{model_name}-{self.archive_name}-{timestamp}.tar"
+            from ..compress import stream_suffix
+            suffix = stream_suffix(compression) if compression is not None else None
+            if suffix:
+                tar_name += suffix
             tar_path = work_dir / tar_name
-            self.log.info("  → packing into %s", tar_name)
-            skipped = 0
-            from ..progress import Progress
-            prog = Progress("Archiving", total_bytes=total_size,
-                            label=tar_name, log=self.log)
-            with tarfile.open(tar_path, "w") as tar:
-                for f, root in matched:
-                    try:
-                        rel = f.relative_to(root)
-                        arcname = str(rel)
-                    except ValueError:
-                        # Path is not under root (shouldn't happen but be safe)
-                        arcname = f.name
-                    try:
-                        fsize = f.stat().st_size
-                    except OSError:
-                        fsize = 0
-                    try:
-                        tar.add(f, arcname=arcname)
-                        prog.advance(fsize)
-                    except OSError as e:
-                        self.log.warning("FilesSource: skipped %s: %s", f, e)
-                        skipped += 1
-            prog.done()
-            if skipped:
-                self.log.warning("FilesSource: %d file(s) skipped due to OS errors", skipped)
-            produced = [tar_path]
+            self.log.info("  → packing into %s%s", tar_name,
+                          f" (streaming through {compression.method})" if suffix else "")
+            produced = [self._pack(matched, tar_path, total_size,
+                                   compression if suffix else None)]
+            if suffix:
+                self.compressed.add(tar_path)
         else:
             # Copy each individually
             produced = []
@@ -222,6 +258,104 @@ class FilesSource:
         # Remember produced files for later prefix derivation
         self._last_picked = list(produced)
         return produced
+
+    def _pack(self, matched: list[tuple[Path, Path]], tar_path: Path,
+              total_size: int, compression) -> Path:
+        """Write the matched files into one tar at tar_path.
+
+        With compression set, the tar is streamed into the compressor and only
+        the compressed archive ever touches the disk.
+        """
+        from ..progress import Progress
+        prog = Progress("Archiving", total_bytes=total_size,
+                        label=tar_path.name, log=self.log)
+        comp = None
+        if compression is not None:
+            from ..compress import open_stream
+            comp = open_stream(tar_path, compression)
+            tar = tarfile.open(fileobj=comp.stdin, mode="w|",
+                               bufsize=_BUF, copybufsize=_BUF)
+        else:
+            tar = tarfile.open(tar_path, "w", copybufsize=_BUF)
+        skipped = damaged = 0
+        try:
+            with tar:
+                for f, root in matched:
+                    try:
+                        arcname = str(f.relative_to(root))
+                    except ValueError:
+                        # Path is not under root (shouldn't happen but be safe)
+                        arcname = f.name
+                    res = self._add(tar, f, arcname)
+                    if res == "skipped":
+                        skipped += 1
+                    elif res == "damaged":
+                        damaged += 1
+                    prog.advance(self._last_size)
+            if comp is not None:
+                comp.finish()
+        except BrokenPipeError:
+            prog.done(success=False)
+            if comp is None:
+                raise
+            # The compressor died; finish() reports why (disk full, …).
+            comp.finish()
+            raise
+        except BaseException:
+            prog.done(success=False)
+            if comp is not None:
+                comp.abort()
+            raise
+        prog.done()
+        if skipped:
+            self.log.warning("FilesSource: %d file(s) skipped due to OS errors", skipped)
+        if damaged:
+            self.log.warning("FilesSource: %d file(s) changed or failed while "
+                             "being read — archived padded with zeros", damaged)
+        size_mb = tar_path.stat().st_size / 1024 / 1024
+        self.log.info("  → %s (%.2f MB)", tar_path.name, size_mb)
+        return tar_path
+
+    def _add(self, tar: tarfile.TarFile, f: Path, arcname: str) -> str:
+        """Add one file to tar. Returns 'ok', 'skipped' or 'damaged'.
+
+        Only errors READING the source are handled here; errors writing the
+        archive (disk full, compressor gone) propagate and fail the run.
+
+        A tar member's header carries its size and is written before the data,
+        so a file that shrinks or hits a read error half-way cannot be rewound
+        (and in stream mode nothing can). Like GNU tar, we pad the member with
+        zeros to the announced size and keep going: the archive stays valid and
+        the affected file is reported.
+        """
+        self._last_size = 0
+        if f.is_symlink():
+            # keep links as links, like tar.add() always did
+            try:
+                tar.add(f, arcname=arcname, recursive=False)
+                return "ok"
+            except OSError as e:
+                if not isinstance(e, BrokenPipeError) and e.errno not in _WRITE_ERRNOS:
+                    self.log.warning("FilesSource: skipped %s: %s", f, e)
+                    return "skipped"
+                raise
+        try:
+            fh = open(f, "rb")
+            info = tar.gettarinfo(arcname=arcname, fileobj=fh)
+        except OSError as e:
+            self.log.warning("FilesSource: skipped %s: %s", f, e)
+            if "fh" in locals():
+                fh.close()
+            return "skipped"
+        self._last_size = info.size
+        with fh:
+            reader = _ExactReader(fh, info.size)
+            tar.addfile(info, reader)
+        if reader.problem:
+            self.log.warning("FilesSource: %s %s — padded with zeros in the archive",
+                             f, reader.problem)
+            return "damaged"
+        return "ok"
 
     # Match a timestamp like '-20260524-160013' or '-20260524_160013' at the end
     # of a filename stem. We rotate by everything *before* that timestamp,
