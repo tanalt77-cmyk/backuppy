@@ -1,6 +1,24 @@
 Changelog
 =========
 
+3.12.0
+------
+
+- **Streaming compression:** a ``files`` source with ``archive_name`` now pipes
+  its tar straight into the compressor (``compression.stream``, default
+  ``true``). Only the compressed archive is written to ``tmp_dir`` — a 77 GB
+  source no longer needs 77 GB of temp space plus room for the compressed copy —
+  and archiving overlaps with compressing. ``stream: false`` restores the
+  two-step behaviour.
+- **Robust archiving:** a file that shrinks or hits a read error while being
+  packed is padded with zeros to its header size (as GNU tar does) instead of
+  leaving a corrupt member; errors writing the archive (disk full) now fail the
+  run instead of being logged as skipped files.
+- **Disk-full reporting:** when the compressor dies because the temp disk is
+  full, the failure says "No space left on device" (it used to be
+  ``zstd failed (rc=70): no stderr``).
+- ``zstd`` levels 20–22 are now passed with ``--ultra`` (they failed before).
+
 3.11.0
 ------
 

@@ -658,8 +658,10 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
 
             # 2. Pick up files via sources
             artifacts: list[Path] = []
+            precompressed: set[Path] = set()  # streamed through the compressor already
             for s in sources:
-                artifacts.extend(s.pickup(work, cfg.name))
+                artifacts.extend(s.pickup(work, cfg.name, compression=cfg.compression))
+                precompressed |= getattr(s, "compressed", set())
 
             if not artifacts:
                 # A run that uploaded NOTHING has failed — "backed up nothing"
@@ -693,7 +695,8 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
 
             # 3. Process each artifact
             for art in artifacts:
-                art = compress_file(art, cfg.compression, log)
+                if art not in precompressed:
+                    art = compress_file(art, cfg.compression, log)
                 art = encrypt_file(art, cfg.encryption, log)
                 parts = split_file(art, cfg.splitter, log)
                 for part in parts:
