@@ -82,6 +82,23 @@ def setup_logger(cfg: LogCfg) -> logging.Logger:
 # Hooks
 # ============================================================================
 
+def _format_warnings(messages: list[str], head: int = 10, tail: int = 10) -> str:
+    """Bullet list of warnings for a notification body.
+
+    A model that skips thousands of unreadable files used to put every one of
+    them into the e-mail. Show the first `head` and the last `tail`; the full
+    list stays in the log file.
+    """
+    if len(messages) <= head + tail:
+        shown = list(messages)
+    else:
+        omitted = len(messages) - head - tail
+        shown = (list(messages[:head])
+                 + [f"... {omitted} more warning(s) omitted — see the log file ..."]
+                 + list(messages[-tail:]))
+    return "  - " + "\n  - ".join(shown)
+
+
 def run_hooks(stage: str, commands: list[str], log: logging.Logger) -> None:
     if not commands:
         return
@@ -744,8 +761,8 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
         if warn_collector.messages:
             body += (
                 f"\n\nWarnings collected before failure "
-                f"({len(warn_collector.messages)}):\n  - "
-                + "\n  - ".join(warn_collector.messages)
+                f"({len(warn_collector.messages)}):\n"
+                + _format_warnings(warn_collector.messages)
             )
         notify_all(cfg.email, cfg.telegram, "failure",
                    f"[backuppy] FAIL {cfg.name} @ {host}",
@@ -766,8 +783,8 @@ def cmd_run(cfg: Config, log: logging.Logger, dry_run: bool) -> int:
             f"Backup completed with warnings at "
             f"{started:%Y-%m-%d %H:%M:%S}\n"
             f"Total time: {elapsed:.1f}s\n\n"
-            f"Warnings ({len(warn_collector.messages)}):\n  - "
-            + "\n  - ".join(warn_collector.messages)
+            f"Warnings ({len(warn_collector.messages)}):\n"
+            + _format_warnings(warn_collector.messages)
         )
     else:
         outcome = "success"

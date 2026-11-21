@@ -1,6 +1,14 @@
 Changelog
 =========
 
+3.12.1
+------
+
+- **Notifications:** the warnings list in failure/warning messages is capped —
+  the first 10 and the last 10 are shown with a count of the omitted ones (the
+  full list stays in the log file). A model skipping thousands of unreadable
+  files no longer produces a message with thousands of lines.
+
 3.12.0
 ------
 
