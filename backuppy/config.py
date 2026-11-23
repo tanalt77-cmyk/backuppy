@@ -164,6 +164,10 @@ class S3Cfg:
     connect_timeout_s: int = 15     # give up establishing a socket after this
     read_timeout_s: int = 120       # give up waiting on a stalled response
     max_pool_connections: int = 10  # cap reused connections (fresh vault on retry)
+    # Whole-upload retries: when every per-request retry of a transfer fails
+    # (seen on B2: TLS EOF on all parts), start the upload over on a new client.
+    upload_attempts: int = 3        # total tries per file (1 = no whole-upload retry)
+    upload_retry_wait_s: int = 30   # pause before try N+1 is this × N
     tcp_keepalive: bool = True      # detect dead peers faster
 
 

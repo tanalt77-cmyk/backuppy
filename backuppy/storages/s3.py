@@ -71,6 +71,67 @@ def _retry_stats_reset() -> None:
         _RETRY_STATS["last_reported"] = 0
 
 
+# Why requests were retried. botocore's "standard"/"adaptive" retry log line
+# carries no reason, so a failed upload used to say only "107 transient errors".
+# A needs-retry event hook records the actual exception / HTTP status instead.
+_REASONS: dict = {"lock": threading.Lock(), "counts": {}}
+
+
+def _reasons_reset() -> None:
+    with _REASONS["lock"]:
+        _REASONS["counts"] = {}
+
+
+def _reasons_summary(top: int = 3) -> str:
+    with _REASONS["lock"]:
+        items = sorted(_REASONS["counts"].items(), key=lambda kv: -kv[1])
+    return "; ".join(f"{n}× {r}" for r, n in items[:top])
+
+
+def _note_retry_reason(response=None, caught_exception=None, operation=None, **_kw):
+    """botocore 'needs-retry' hook: remember why a request failed. Must return
+    None so it never influences the retry decision itself."""
+    try:
+        reason = None
+        if caught_exception is not None:
+            reason = f"{type(caught_exception).__name__}: {caught_exception}"
+        elif response is not None:
+            http, parsed = response
+            status = getattr(http, "status_code", 0)
+            if status >= 500 or status == 429:
+                code = ((parsed or {}).get("Error") or {}).get("Code", "")
+                reason = f"HTTP {status} {code}".strip()
+        if reason:
+            op = getattr(operation, "name", "") or "?"
+            # Drop per-request noise (object keys, ids) so equal causes group.
+            reason = (op + " — " + " ".join(reason.split()))[:220]
+            with _REASONS["lock"]:
+                c = _REASONS["counts"]
+                if reason in c or len(c) < 20:
+                    c[reason] = c.get(reason, 0) + 1
+    except Exception:  # noqa: BLE001 — diagnostics must never break an upload
+        pass
+    return None
+
+
+def _upload_error_is_final(exc: BaseException) -> bool:
+    """True when repeating the upload cannot help: local file problems and
+    definite 4xx answers (bad credentials, missing bucket...)."""
+    seen = set()
+    e: BaseException | None = exc
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        if isinstance(e, (FileNotFoundError, PermissionError, IsADirectoryError)):
+            return True
+        resp = getattr(e, "response", None)
+        if isinstance(resp, dict):
+            status = (resp.get("ResponseMetadata") or {}).get("HTTPStatusCode", 0)
+            if 400 <= status < 500 and status not in (408, 429):
+                return True
+        e = e.__cause__ or e.__context__
+    return False
+
+
 def _retry_stats_total() -> int:
     with _RETRY_STATS["lock"]:
         return _RETRY_STATS["total"]
@@ -157,6 +218,7 @@ class S3Storage(BaseStorage):
 
         _install_retry_logging(self.log)
         self._client = boto3.client("s3", **kwargs)
+        self._client.meta.events.register("needs-retry.s3", _note_retry_reason)
         return self._client
 
     def _key(self, name: str) -> str:
@@ -208,25 +270,45 @@ class S3Storage(BaseStorage):
             use_threads=True,
         )
 
-        progress = Progress("Uploading (s3)", total_bytes=size,
-                            label=local.name, log=self.log)
-        _retry_stats_reset()
-        try:
-            self.client.upload_file(
-                Filename=str(local), Bucket=self.cfg.bucket, Key=key,
-                ExtraArgs=extra, Config=transfer,
-                Callback=progress_callback(progress),
-            )
-            progress.done()
-        except Exception:
-            progress.done(success=False)
-            raise
-        finally:
-            # One summary line per upload instead of one line per retry.
-            retries = _retry_stats_total()
-            if retries:
+        # A B2 upload sometimes lands on a front-end that drops every part of
+        # this particular transfer (TLS EOF on all threads, 0 % progress) while
+        # a fresh transfer started a minute later is perfectly clean. Per-request
+        # retries stay inside the doomed transfer, so repeat the WHOLE upload
+        # with a brand-new client (new connections, new multipart upload).
+        attempts = max(1, self.cfg.upload_attempts)
+        for attempt in range(1, attempts + 1):
+            progress = Progress("Uploading (s3)", total_bytes=size,
+                                label=local.name, log=self.log)
+            _retry_stats_reset()
+            _reasons_reset()
+            try:
+                self.client.upload_file(
+                    Filename=str(local), Bucket=self.cfg.bucket, Key=key,
+                    ExtraArgs=extra, Config=transfer,
+                    Callback=progress_callback(progress),
+                )
+                progress.done()
+                break
+            except Exception as e:  # noqa: BLE001
+                progress.done(success=False)
+                if attempt >= attempts or _upload_error_is_final(e):
+                    raise
+                wait = self.cfg.upload_retry_wait_s * attempt
                 self.log.warning(
-                    "S3: %d transient error(s) retried during this upload", retries)
+                    "S3: upload attempt %d/%d failed (%s: %s) — new connection, "
+                    "retrying the whole upload in %ds",
+                    attempt, attempts, type(e).__name__, str(e)[:200], wait)
+                self._client = None  # fresh client → fresh sockets
+                time.sleep(wait)
+            finally:
+                # One summary line per upload instead of one line per retry.
+                retries = _retry_stats_total()
+                if retries:
+                    self.log.warning(
+                        "S3: %d transient error(s) retried during this upload", retries)
+                why = _reasons_summary()
+                if why:
+                    self.log.warning("S3: retry reasons: %s", why)
         return f"s3://{self.cfg.bucket}/{key}"
 
     def list_files(self) -> list[dict]:
